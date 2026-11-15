@@ -1399,9 +1399,9 @@ public class MainActivity extends Activity {
             et.setPadding(dp(10), dp(8), dp(10), dp(8));
             et.setText(speedNumber(d));
             line.addView(et, new LinearLayout.LayoutParams(0, WRAP, 1f));
-            TextView pick = Ui.pill(this, "مخاطب", t.surface, t.text);
+            TextView pickBtn = Ui.pill(this, "مخاطب", t.surface, t.text);
             final EditText target = et;
-            pick.setOnClickListener(new View.OnClickListener() {
+            pickBtn.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     pickContact(target);
@@ -1409,7 +1409,7 @@ public class MainActivity extends Activity {
             });
             LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(WRAP, WRAP);
             pp.setMarginStart(dp(6));
-            line.addView(pick, pp);
+            line.addView(pickBtn, pp);
             speedFields[d - 1] = et;
             box.addView(line, fullTop(6));
         }
