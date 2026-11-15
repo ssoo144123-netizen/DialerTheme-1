@@ -109,4 +109,292 @@ public class InCallActivity extends Activity {
         nameTv = Ui.text(this, "", 28, t.text);
         nameTv.setTypeface(null, Typeface.BOLD);
         nameTv.setGravity(Gravity.CENTER);
-        Ui.glowText(nameTv,
+        Ui.glowText(nameTv, t.accent, t);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        np.topMargin = dp(12);
+        root.addView(nameTv, np);
+
+        numTv = Ui.text(this, "", 16, t.text2);
+        numTv.setGravity(Gravity.CENTER);
+        numTv.setTextDirection(View.TEXT_DIRECTION_LTR);
+        root.addView(numTv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        statusTv = Ui.text(this, "", 18, t.primary);
+        statusTv.setGravity(Gravity.CENTER);
+        Ui.glowText(statusTv, t.primary, t);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(10);
+        root.addView(statusTv, sp);
+
+        View spacer = new View(this);
+        root.addView(spacer, new LinearLayout.LayoutParams(1, 0, 1f));
+
+        controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.VERTICAL);
+        controls.setGravity(Gravity.CENTER);
+        root.addView(controls, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        setContentView(root);
+
+        CallManager.addListener(listener);
+        refresh();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (statusTv != null) {
+            handler.removeCallbacks(tick);
+            handler.post(tick);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        handler.removeCallbacks(tick);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        CallManager.removeListener(listener);
+        handler.removeCallbacksAndMessages(null);
+        setPulse(false);
+        super.onDestroy();
+    }
+
+    private void setPulse(boolean on) {
+        if (ring == null) return;
+        if (on) {
+            if (pulse == null) {
+                pulse = ObjectAnimator.ofPropertyValuesHolder(ring,
+                        PropertyValuesHolder.ofFloat("scaleX", 1f, 1.3f),
+                        PropertyValuesHolder.ofFloat("scaleY", 1f, 1.3f),
+                        PropertyValuesHolder.ofFloat("alpha", 0.9f, 0.05f));
+                pulse.setDuration(1300);
+                pulse.setRepeatCount(ValueAnimator.INFINITE);
+                pulse.setInterpolator(new DecelerateInterpolator());
+                pulse.start();
+            }
+        } else if (pulse != null) {
+            pulse.cancel();
+            pulse = null;
+            ring.setScaleX(1f);
+            ring.setScaleY(1f);
+            ring.setAlpha(0.6f);
+        }
+    }
+
+    private void syncAudio() {
+        CallService svc = CallManager.service;
+        if (svc == null) return;
+        CallAudioState as = svc.getCallAudioState();
+        if (as != null) {
+            CallManager.muted = as.isMuted();
+            CallManager.route = as.getRoute();
+        }
+    }
+
+    private void refresh() {
+        if (statusTv == null) return;
+        final Call c = CallManager.primary();
+        if (c == null) {
+            setPulse(false);
+            statusTv.setText("تماس پایان یافت");
+            controls.removeAllViews();
+            if (!finishScheduled) {
+                finishScheduled = true;
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        finish();
+                    }
+                }, 800);
+            }
+            return;
+        }
+        syncAudio();
+        String title = CallManager.title(this, c);
+        String number = CallManager.number(c);
+        nameTv.setText(title);
+        numTv.setText((number != null && !number.equals(title)) ? number : "");
+        avatar.setText(initial(title));
+        statusTv.setText(statusText(c));
+        int s = c.getState();
+        setPulse(s == Call.STATE_RINGING || s == Call.STATE_DIALING || s == Call.STATE_CONNECTING);
+        buildControls(c);
+    }
+
+    private String initial(String title) {
+        if (TextUtils.isEmpty(title)) return "#";
+        char ch = title.charAt(0);
+        return Character.isLetter(ch) ? String.valueOf(ch).toUpperCase() : "#";
+    }
+
+    private String statusText(Call c) {
+        switch (c.getState()) {
+            case Call.STATE_RINGING:
+                return "تماس ورودی";
+            case Call.STATE_DIALING:
+            case Call.STATE_CONNECTING:
+                return "در حال برقراری تماس…";
+            case Call.STATE_HOLDING:
+                return "در انتظار";
+            case Call.STATE_ACTIVE:
+                long ct = c.getDetails().getConnectTimeMillis();
+                long sec = ct > 0 ? (System.currentTimeMillis() - ct) / 1000 : 0;
+                if (sec < 0) sec = 0;
+                return String.format(Locale.US, "%02d:%02d", sec / 60, sec % 60);
+            case Call.STATE_DISCONNECTED:
+                return "پایان تماس";
+            default:
+                return "…";
+        }
+    }
+
+    private LinearLayout row() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER);
+        r.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.bottomMargin = dp(24);
+        r.setLayoutParams(p);
+        return r;
+    }
+
+    private View circleButton(int icon, String label, Drawable bg, int iconColor,
+                              boolean glowIcon, View.OnClickListener l) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+
+        LinearLayout c = new LinearLayout(this);
+        c.setGravity(Gravity.CENTER);
+        c.setBackground(bg);
+        c.setOnClickListener(l);
+        c.addView(new IconView(this, icon, iconColor, glowIcon),
+                new LinearLayout.LayoutParams(dp(32), dp(32)));
+        col.addView(c, new LinearLayout.LayoutParams(dp(74), dp(74)));
+
+        TextView lb = Ui.text(this, label, 13, t.text2);
+        lb.setGravity(Gravity.CENTER);
+        lb.setPadding(0, dp(6), 0, 0);
+        col.addView(lb);
+        return col;
+    }
+
+    private LinearLayout.LayoutParams weight() {
+        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+    }
+
+    private View toggle(int icon, String label, boolean active, View.OnClickListener l) {
+        Drawable bg = active ? Ui.glowButton(this, t.primary) : Ui.keyBg(this, t);
+        int ic = active ? t.onPrimary : t.text;
+        return circleButton(icon, label, bg, ic, !active && t.neon, l);
+    }
+
+    private void blockAndReject(Call c) {
+        String number = CallManager.number(c);
+        if (TextUtils.isEmpty(number)) {
+            Toast.makeText(this, "شماره ناشناس قابل مسدودسازی نیست", Toast.LENGTH_SHORT).show();
+        } else if (!TimedBlock.isSupported(this)) {
+            Toast.makeText(this, "مسدودسازی در این نسخه اندروید پشتیبانی نمی‌شود",
+                    Toast.LENGTH_SHORT).show();
+        } else if (TimedBlock.isBlocked(this, number)) {
+            Toast.makeText(this, "این شماره از قبل مسدود است", Toast.LENGTH_SHORT).show();
+        } else {
+            try {
+                TimedBlock.block(this, number);
+                Toast.makeText(this, "به مدت ۵ دقیقه مسدود شد", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "مسدودسازی ممکن نشد", Toast.LENGTH_SHORT).show();
+            }
+        }
+        c.reject(false, null);
+    }
+
+    private void buildControls(final Call c) {
+        controls.removeAllViews();
+        int s = c.getState();
+
+        if (s == Call.STATE_RINGING) {
+            LinearLayout r = row();
+            r.addView(circleButton(IconView.END, "رد", Ui.glowButton(this, AppTheme.RED),
+                    Color.WHITE, false, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            c.reject(false, null);
+                        }
+                    }), weight());
+            r.addView(circleButton(IconView.PHONE, "پاسخ", Ui.glowButton(this, AppTheme.GREEN),
+                    Color.WHITE, false, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            c.answer(VideoProfile.STATE_AUDIO_ONLY);
+                        }
+                    }), weight());
+            r.addView(circleButton(IconView.END, "مسدود", Ui.keyBg(this, t),
+                    t.text, false, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            blockAndReject(c);
+                        }
+                    }), weight());
+            controls.addView(r);
+            return;
+        }
+
+        boolean muted = CallManager.muted;
+        boolean spk = CallManager.route == CallAudioState.ROUTE_SPEAKER;
+        boolean hold = s == Call.STATE_HOLDING;
+
+        LinearLayout r = row();
+        r.addView(toggle(muted ? IconView.MIC_OFF : IconView.MIC, "بی‌صدا", muted,
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        CallService svc = CallManager.service;
+                        if (svc != null) svc.setMuted(!CallManager.muted);
+                    }
+                }), weight());
+        r.addView(toggle(IconView.SPEAKER, "بلندگو", spk,
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        CallService svc = CallManager.service;
+                        if (svc != null) {
+                            boolean on = CallManager.route == CallAudioState.ROUTE_SPEAKER;
+                            svc.setAudioRoute(on ? CallAudioState.ROUTE_WIRED_OR_EARPIECE
+                                    : CallAudioState.ROUTE_SPEAKER);
+                        }
+                    }
+                }), weight());
+        if (s == Call.STATE_ACTIVE || s == Call.STATE_HOLDING) {
+            r.addView(toggle(IconView.PAUSE, "نگه‌داشتن", hold,
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            if (c.getState() == Call.STATE_HOLDING) c.unhold();
+                            else c.hold();
+                        }
+                    }), weight());
+        }
+        controls.addView(r);
+
+        LinearLayout end = row();
+        end.addView(circleButton(IconView.END, "پایان تماس", Ui.glowButton(this, AppTheme.RED),
+                Color.WHITE, false, new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        c.disconnect();
+                    }
+                }), weight());
+        controls.addView(end);
+    }
+}
