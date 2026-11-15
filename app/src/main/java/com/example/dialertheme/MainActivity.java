@@ -226,6 +226,31 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- actions
 
+    /** باز کردن چت واتساپ با شماره (شماره‌ی ایرانی 09… به 989… تبدیل می‌شود). */
+    private void openWhatsApp(String number) {
+        String digits = number.replaceAll("[^0-9]", "");
+        if (digits.startsWith("00")) {
+            digits = digits.substring(2);
+        } else if (digits.startsWith("0") && digits.length() == 11) {
+            digits = "98" + digits.substring(1);
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digits)));
+        } catch (Exception e) {
+            Toast.makeText(this, "واتساپ پیدا نشد", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** تاریخ شمسی همراه با نام روز و ساعت برای فهرست تماس‌ها */
+    static String jalaliDateTime(long millis) {
+        Calendar c = Calendar.getInstance();
+        c.setTimeInMillis(millis);
+        int[] j = toJalali(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH));
+        return weekdayName(c.get(Calendar.DAY_OF_WEEK)) + " " + j[2] + " " + JALI_MONTHS[j[1] - 1]
+                + " " + j[0] + "  " + String.format(Locale.US, "%02d:%02d",
+                c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE));
+    }
+
     private void placeCall(String number) {
         if (TextUtils.isEmpty(number)) return;
         if (!has(Manifest.permission.CALL_PHONE)) {
@@ -333,7 +358,11 @@ public class MainActivity extends Activity {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
                 ContactUtil.Contact c = (ContactUtil.Contact) ad.getItem(pos);
-                placeCall(c.number);
+                if (c.whatsapp) {
+                    openWhatsApp(c.number);
+                } else {
+                    placeCall(c.number);
+                }
             }
         });
 
@@ -982,7 +1011,21 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
-        return lv;
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        TextView rep = Ui.pill(this, "گزارش تماس‌ها به تفکیک روز", t.primary, t.onPrimary);
+        rep.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showCallReport();
+            }
+        });
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(WRAP, WRAP);
+        rp.gravity = Gravity.CENTER_HORIZONTAL;
+        rp.setMargins(dp(14), dp(8), dp(14), dp(8));
+        wrap.addView(rep, rp);
+        wrap.addView(lv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+        return wrap;
     }
 
     private class RecentAdapter extends BaseAdapter {
@@ -1040,7 +1083,7 @@ public class MainActivity extends Activity {
                 case 5: typeLabel = "رد شده"; break;
                 default: typeLabel = "";
             }
-            String sub = typeLabel + " • " + fmt.format(new Date(r.date));
+            String sub = typeLabel + " • " + jalaliDateTime(r.date);
             if (r.duration > 0) {
                 sub += String.format(Locale.US, " • %d:%02d", r.duration / 60, r.duration % 60);
             }
@@ -1271,20 +1314,6 @@ public class MainActivity extends Activity {
                         InCallActivity.TimedBlock.setDurationMinutes(MainActivity.this, minutesValues[i]);
                     }
                 }), fullTop(8));
-
-        // call report
-        box.addView(header("گزارش تماس‌ها"));
-        box.addView(Ui.text(this,
-                "تماس‌ها به تفکیک روز با تاریخ شمسی و آمار ورودی، خروجی و بی‌پاسخ.",
-                14, t.text2));
-        TextView rep = Ui.pill(this, "نمایش گزارش", t.primary, t.onPrimary);
-        rep.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showCallReport();
-            }
-        });
-        box.addView(rep, fullTop(6));
 
         // blocked numbers: list + unblock
         box.addView(header("شماره‌های مسدود"));
