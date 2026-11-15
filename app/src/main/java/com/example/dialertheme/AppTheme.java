@@ -50,17 +50,68 @@ public class AppTheme {
         return c.getSharedPreferences("theme2", Context.MODE_PRIVATE);
     }
 
+    /** شناسه‌ی تم شخصی (رنگ‌های انتخابی کاربر) */
+    public static final int CUSTOM = 100;
+
+    private static final int[] DEFAULT_ROLES = {
+            0xFF0A0420, // 0: پس‌زمینه
+            0xFF00F0FF, // 1: رنگ اصلی
+            0xFFFF2BD6, // 2: رنگ تأکید
+            0xFFEFFBFF  // 3: رنگ متن
+    };
+
     public static int index(Context c) {
         int i = prefs(c).getInt("theme", 0);
+        if (i == CUSTOM) return CUSTOM;
         return (i < 0 || i >= ALL.length) ? 0 : i;
     }
 
     public static AppTheme current(Context c) {
+        if (index(c) == CUSTOM) return custom(c);
         return ALL[index(c)];
     }
 
     public static void setCurrent(Context c, int i) {
         prefs(c).edit().putInt("theme", i).apply();
+    }
+
+    /** ذخیره‌ی یکی از چهار رنگ شخصی و فعال‌سازی تم شخصی. */
+    public static void setRole(Context c, int role, int color) {
+        prefs(c).edit().putInt("c" + role, color).putInt("theme", CUSTOM).apply();
+    }
+
+    /** بازگشت به تم پیش‌فرض و پاک کردن رنگ‌های شخصی. */
+    public static void resetCustom(Context c) {
+        SharedPreferences.Editor e = prefs(c).edit();
+        for (int r = 0; r < DEFAULT_ROLES.length; r++) e.remove("c" + r);
+        e.putInt("theme", 0).apply();
+    }
+
+    /** ساخت تم از روی رنگ‌های شخصی؛ بقیه‌ی رنگ‌ها از همین چهار رنگ مشتق می‌شوند. */
+    public static AppTheme custom(Context c) {
+        SharedPreferences p = prefs(c);
+        int bg = p.getInt("c0", DEFAULT_ROLES[0]);
+        int primary = p.getInt("c1", DEFAULT_ROLES[1]);
+        int accent = p.getInt("c2", DEFAULT_ROLES[2]);
+        int text = p.getInt("c3", DEFAULT_ROLES[3]);
+        boolean lightBg = luminance(bg) > 140;
+        int bg2 = mix(bg, lightBg ? 0xFFFFFFFF : 0xFF000000, 0.12f);
+        int surface = mix(bg, text, 0.08f);
+        int onPrimary = luminance(primary) > 140 ? 0xFF000000 : 0xFFFFFFFF;
+        int text2 = mix(text, bg, 0.35f);
+        return new AppTheme("سفارشی", bg, bg2, surface, primary, accent,
+                onPrimary, text, text2, false, false);
+    }
+
+    public static int mix(int a, int b, float f) {
+        int r = (int) (((a >> 16) & 0xFF) * (1 - f) + ((b >> 16) & 0xFF) * f);
+        int g = (int) (((a >> 8) & 0xFF) * (1 - f) + ((b >> 8) & 0xFF) * f);
+        int bl = (int) ((a & 0xFF) * (1 - f) + (b & 0xFF) * f);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    public static int luminance(int c) {
+        return (int) (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c));
     }
 
     public static int sizeIndex(Context c) {

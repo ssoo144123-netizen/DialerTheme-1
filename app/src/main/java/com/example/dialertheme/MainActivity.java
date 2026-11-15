@@ -17,6 +17,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.CallLog;
+import android.app.AlertDialog;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.TreeMap;
 import android.telecom.TelecomManager;
 import android.text.Editable;
 import android.text.TextUtils;
@@ -439,7 +443,8 @@ public class MainActivity extends Activity {
             final ContactUtil.Contact c = shown.get(pos);
             h.avatar.setText(c.name.isEmpty() ? "#" : c.name.substring(0, 1).toUpperCase());
             h.name.setText(c.name);
-            h.number.setText(c.number);
+            String badge = (c.whatsapp ? "  · واتساپ" : "") + (c.telegram ? "  · تلگرام" : "");
+            h.number.setText(c.number + badge);
             h.sms.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -762,6 +767,154 @@ public class MainActivity extends Activity {
         TextView title, sub;
     }
 
+    // ---------------------------------------------------------- گزارش تماس‌ها
+
+    private static final String[] JALI_MONTHS = {
+            "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+            "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"};
+
+    /** تبدیل تاریخ میلادی به شمسی: {سال، ماه، روز} */
+    static int[] toJalali(int gy, int gm, int gd) {
+        int[] gdm = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+        int gy2 = gm > 2 ? gy + 1 : gy;
+        int days = 355666 + (365 * gy) + ((gy2 + 3) / 4) - ((gy2 + 99) / 100)
+                + ((gy2 + 399) / 400) + gd + gdm[gm - 1];
+        int jy = -1595 + (33 * (days / 12053));
+        days %= 12053;
+        jy += 4 * (days / 1461);
+        days %= 1461;
+        if (days > 365) {
+            jy += (days - 1) / 365;
+            days = (days - 1) % 365;
+        }
+        int jm, jd;
+        if (days < 186) {
+            jm = 1 + days / 31;
+            jd = 1 + (days % 31);
+        } else {
+            jm = 7 + (days - 186) / 30;
+            jd = 1 + ((days - 186) % 30);
+        }
+        return new int[]{jy, jm, jd};
+    }
+
+    private static String weekdayName(int calDayOfWeek) {
+        // Calendar: SUNDAY=1 ... SATURDAY=7
+        String[] names = {"", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"};
+        return names[calDayOfWeek];
+    }
+
+    private static class DayStat {
+        int jy, jm, jd;
+        String weekday = "";
+        int incoming, outgoing, missed;
+        long seconds;
+    }
+
+    private static String fmtDuration(long sec) {
+        long h = sec / 3600, m = (sec % 3600) / 60, x = sec % 60;
+        return String.format(java.util.Locale.US, "%d:%02d:%02d", h, m, x);
+    }
+
+    private void showCallReport() {
+        if (!has(Manifest.permission.READ_CALL_LOG)) {
+            requestMissingPermissions();
+            return;
+        }
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(14), dp(10), dp(14), dp(14));
+        box.addView(Ui.text(this, "در حال بارگذاری…", 15, t.text2));
+
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("گزارش تماس‌ها")
+                .setView(sv)
+                .setPositiveButton("بستن", null)
+                .create();
+        dlg.show();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final TreeMap<Long, DayStat> days = new TreeMap<>(Collections.reverseOrder());
+                Cursor cur = null;
+                try {
+                    cur = getContentResolver().query(CallLog.Calls.CONTENT_URI,
+                            new String[]{CallLog.Calls.TYPE, CallLog.Calls.DATE, CallLog.Calls.DURATION},
+                            null, null, CallLog.Calls.DATE + " DESC");
+                    Calendar cal = Calendar.getInstance();
+                    while (cur != null && cur.moveToNext()) {
+                        int type = cur.getInt(0);
+                        long date = cur.getLong(1);
+                        long dur = cur.getLong(2);
+                        cal.setTimeInMillis(date);
+                        int[] j = toJalali(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1,
+                                cal.get(Calendar.DAY_OF_MONTH));
+                        long key = j[0] * 10000L + j[1] * 100L + j[2];
+                        DayStat ds = days.get(key);
+                        if (ds == null) {
+                            ds = new DayStat();
+                            ds.jy = j[0];
+                            ds.jm = j[1];
+                            ds.jd = j[2];
+                            ds.weekday = weekdayName(cal.get(Calendar.DAY_OF_WEEK));
+                            days.put(key, ds);
+                        }
+                        // 1=ورودی، 2=خروجی، 3=بی‌پاسخ، 5=رد شده، 6=مسدود
+                        if (type == CallLog.Calls.INCOMING_TYPE) ds.incoming++;
+                        else if (type == CallLog.Calls.OUTGOING_TYPE) ds.outgoing++;
+                        else ds.missed++;
+                        ds.seconds += dur;
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    if (cur != null) cur.close();
+                }
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        box.removeAllViews();
+                        if (days.isEmpty()) {
+                            box.addView(Ui.text(MainActivity.this, "هیچ تماسی ثبت نشده است.", 15, t.text2));
+                            return;
+                        }
+                        int tIn = 0, tOut = 0, tMiss = 0;
+                        long tSec = 0;
+                        for (DayStat ds : days.values()) {
+                            tIn += ds.incoming;
+                            tOut += ds.outgoing;
+                            tMiss += ds.missed;
+                            tSec += ds.seconds;
+                            TextView row = Ui.text(MainActivity.this,
+                                    ds.weekday + "  " + ds.jd + " " + JALI_MONTHS[ds.jm - 1] + " " + ds.jy
+                                            + "\n"
+                                            + "ورودی: " + ds.incoming
+                                            + "   خروجی: " + ds.outgoing
+                                            + "   بی‌پاسخ: " + ds.missed
+                                            + "\nمدت مکالمه: " + fmtDuration(ds.seconds),
+                                    14, t.text);
+                            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+                            row.setBackground(Ui.rect(MainActivity.this, Ui.alpha(t.surface, 0xCC), 12));
+                            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                            lp.topMargin = dp(8);
+                            box.addView(row, lp);
+                        }
+                        TextView total = Ui.text(MainActivity.this,
+                                "جمع کل — ورودی: " + tIn + "   خروجی: " + tOut
+                                        + "   بی‌پاسخ: " + tMiss + "\nمدت مکالمه: " + fmtDuration(tSec),
+                                15, t.primary);
+                        total.setPadding(0, dp(12), 0, 0);
+                        box.addView(total);
+                    }
+                });
+            }
+        }).start();
+    }
+
     private static String tail(String n) {
         String d = n.replaceAll("[^0-9]", "");
         return d.length() > 9 ? d.substring(d.length() - 9) : d;
@@ -916,6 +1069,43 @@ public class MainActivity extends Activity {
         return p;
     }
 
+    private static final int[] SWATCHES = {
+            0xFF000000, 0xFF0A0420, 0xFF121212, 0xFF202124, 0xFF1A237E, 0xFF14001F, 0xFF0D1B2A, 0xFF1B3324,
+            0xFFFFFFFF, 0xFFF1F3F4, 0xFFFCE4EC, 0xFFFFF8E1, 0xFFE3F2FD, 0xFFEDE7F6, 0xFFE8F5E9, 0xFFEFEBE9,
+            0xFF00F0FF, 0xFF1A73E8, 0xFF2E9E4F, 0xFF8AB4F8, 0xFFBB86FC, 0xFFFF2BD6, 0xFFFF4FD8, 0xFFFF9A3C,
+            0xFFFFE600, 0xFFFF3CAC, 0xFF39FF14, 0xFF26C6DA, 0xFFFF7043, 0xFFD81B60, 0xFFD93025, 0xFF6A1B9A};
+
+    /** ردیف‌های رنگ برای یک نقش (0 پس‌زمینه، 1 اصلی، 2 تأکید، 3 متن) */
+    private LinearLayout swatchGrid(final int role, final int selected) {
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (int r = 0; r < SWATCHES.length / 8; r++) {
+            LinearLayout line = new LinearLayout(this);
+            for (int i = 0; i < 8; i++) {
+                final int color = SWATCHES[r * 8 + i];
+                boolean sel = color == selected;
+                View sw = new View(this);
+                GradientDrawable g = new GradientDrawable();
+                g.setShape(GradientDrawable.OVAL);
+                g.setColor(color);
+                g.setStroke(dp(sel ? 3 : 1), sel ? t.primary : Ui.alpha(t.text2, 0x80));
+                sw.setBackground(g);
+                sw.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        AppTheme.setRole(MainActivity.this, role, color);
+                        recreate();
+                    }
+                });
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(30), 1f);
+                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                line.addView(sw, lp);
+            }
+            grid.addView(line);
+        }
+        return grid;
+    }
+
     private interface Pick {
         void on(int index);
     }
@@ -1021,44 +1211,25 @@ public class MainActivity extends Activity {
             box.addView(del, fullTop(8));
         }
 
-        // themes
-        box.addView(header("تم رنگی"));
-        int cur = AppTheme.index(this);
-        for (int i = 0; i < AppTheme.ALL.length; i++) {
-            final int idx = i;
-            AppTheme th = AppTheme.ALL[i];
-            boolean sel = cur == i;
-            LinearLayout row = new LinearLayout(this);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(16), dp(14), dp(16), dp(14));
-            GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{th.bg, th.bg2});
-            bg.setCornerRadius(dp(14));
-            bg.setStroke(dp(sel ? 3 : 1), sel ? th.primary : Ui.alpha(th.text2, 0x80));
-            row.setBackground(bg);
-
-            TextView nm = Ui.text(this, th.name + (th.neon ? "  ✦" : "") + (sel ? "  ✓" : ""), 16, th.text);
-            Ui.glowText(nm, th.primary, th);
-            row.addView(nm, new LinearLayout.LayoutParams(0, WRAP, 1f));
-            int[] sw = {th.primary, th.accent, th.surface};
-            for (int col : sw) {
-                View d = new View(this);
-                d.setBackground(Ui.circle(col));
-                LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dp(22), dp(22));
-                dl.setMarginStart(dp(6));
-                row.addView(d, dl);
+        // custom colors (ready-made themes removed)
+        box.addView(header("رنگ‌های شخصی"));
+        box.addView(Ui.text(this, "پس‌زمینه", 14, t.text2));
+        box.addView(swatchGrid(0, t.bg), fullTop(4));
+        box.addView(Ui.text(this, "رنگ اصلی", 14, t.text2));
+        box.addView(swatchGrid(1, t.primary), fullTop(4));
+        box.addView(Ui.text(this, "رنگ تأکید", 14, t.text2));
+        box.addView(swatchGrid(2, t.accent), fullTop(4));
+        box.addView(Ui.text(this, "رنگ متن", 14, t.text2));
+        box.addView(swatchGrid(3, t.text), fullTop(4));
+        TextView reset = Ui.pill(this, "بازگردانی رنگ‌های پیش‌فرض", t.surface, t.text);
+        reset.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                AppTheme.resetCustom(MainActivity.this);
+                recreate();
             }
-            row.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    AppTheme.setCurrent(MainActivity.this, idx);
-                    recreate();
-                }
-            });
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(MATCH, WRAP);
-            rp.bottomMargin = dp(8);
-            box.addView(row, rp);
-        }
+        });
+        box.addView(reset, fullTop(8));
 
         // text size
         box.addView(header("اندازه متن"));
@@ -1100,6 +1271,20 @@ public class MainActivity extends Activity {
                         InCallActivity.TimedBlock.setDurationMinutes(MainActivity.this, minutesValues[i]);
                     }
                 }), fullTop(8));
+
+        // call report
+        box.addView(header("گزارش تماس‌ها"));
+        box.addView(Ui.text(this,
+                "تماس‌ها به تفکیک روز با تاریخ شمسی و آمار ورودی، خروجی و بی‌پاسخ.",
+                14, t.text2));
+        TextView rep = Ui.pill(this, "نمایش گزارش", t.primary, t.onPrimary);
+        rep.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showCallReport();
+            }
+        });
+        box.addView(rep, fullTop(6));
 
         // blocked numbers: list + unblock
         box.addView(header("شماره‌های مسدود"));
