@@ -25,6 +25,8 @@ import android.telecom.TelecomManager;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.content.DialogInterface;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -225,6 +227,51 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- actions
+
+    /** انتخاب یک شماره از مخاطبین و گذاشتن آن در فیلد داده‌شده */
+    private void pickContact(final EditText target) {
+        if (!has(Manifest.permission.READ_CONTACTS)) {
+            requestMissingPermissions();
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<ContactUtil.Contact> all = ContactUtil.loadAll(MainActivity.this);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (all.isEmpty()) {
+                            Toast.makeText(MainActivity.this, "مخاطبی پیدا نشد", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        String[] items = new String[all.size()];
+                        for (int i = 0; i < all.size(); i++) {
+                            items[i] = all.get(i).name + "  " + all.get(i).number;
+                        }
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("انتخاب مخاطب")
+                                .setItems(items, new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        target.setText(all.get(which).number);
+                                    }
+                                })
+                                .setNegativeButton("انصراف", null)
+                                .show();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private SharedPreferences speedPrefs() {
+        return getSharedPreferences("speed", MODE_PRIVATE);
+    }
+
+    private String speedNumber(int digit) {
+        return speedPrefs().getString("d" + digit, "");
+    }
 
     /** باز کردن چت واتساپ با شماره (شماره‌ی ایرانی 09… به 989… تبدیل می‌شود). */
     private void openWhatsApp(String number) {
@@ -680,6 +727,21 @@ public class MainActivity extends Activity {
                 public boolean onLongClick(View view) {
                     dialNumber += "+";
                     updateDial();
+                    return true;
+                }
+            });
+        } else if (k.matches("[1-9]")) {
+            // شماره‌گیری سریع: نگه‌داشتن کلید، تماس با شماره‌ی ذخیره‌شده‌ی آن کلید
+            v.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View view) {
+                    String n = speedNumber(k.charAt(0) - '0');
+                    if (n.isEmpty()) {
+                        Toast.makeText(MainActivity.this,
+                                "برای کلید " + k + " شماره‌ی سریع تنظیم نشده است", Toast.LENGTH_SHORT).show();
+                    } else {
+                        placeCall(n);
+                    }
                     return true;
                 }
             });
@@ -1314,6 +1376,58 @@ public class MainActivity extends Activity {
                         InCallActivity.TimedBlock.setDurationMinutes(MainActivity.this, minutesValues[i]);
                     }
                 }), fullTop(8));
+
+        // speed dial
+        box.addView(header("شماره‌گیری سریع"));
+        box.addView(Ui.text(this,
+                "در صفحه‌ی شماره‌گیری، کلیدهای ۱ تا ۹ را نگه دارید تا شماره‌ی ذخیره‌شده‌ی آن کلید تماس گرفته شود.",
+                14, t.text2));
+        final EditText[] speedFields = new EditText[9];
+        for (int d = 1; d <= 9; d++) {
+            LinearLayout line = new LinearLayout(this);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.addView(Ui.text(this, "کلید " + d, 15, t.text),
+                    new LinearLayout.LayoutParams(dp(74), WRAP));
+            EditText et = new EditText(this);
+            et.setSingleLine(true);
+            et.setInputType(InputType.TYPE_CLASS_PHONE);
+            et.setHint("شماره");
+            et.setTextColor(t.text);
+            et.setHintTextColor(t.text2);
+            et.setTextDirection(View.TEXT_DIRECTION_LTR);
+            et.setBackground(Ui.rect(this, Ui.alpha(t.surface, 0xCC), 12));
+            et.setPadding(dp(10), dp(8), dp(10), dp(8));
+            et.setText(speedNumber(d));
+            line.addView(et, new LinearLayout.LayoutParams(0, WRAP, 1f));
+            TextView pick = Ui.pill(this, "مخاطب", t.surface, t.text);
+            final EditText target = et;
+            pick.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pickContact(target);
+                }
+            });
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(WRAP, WRAP);
+            pp.setMarginStart(dp(6));
+            line.addView(pick, pp);
+            speedFields[d - 1] = et;
+            box.addView(line, fullTop(6));
+        }
+        TextView saveSpeed = Ui.pill(this, "ذخیره شماره‌های سریع", t.primary, t.onPrimary);
+        saveSpeed.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                SharedPreferences.Editor e = speedPrefs().edit();
+                for (int d = 1; d <= 9; d++) {
+                    String val = speedFields[d - 1].getText().toString().trim();
+                    if (val.isEmpty()) e.remove("d" + d);
+                    else e.putString("d" + d, val);
+                }
+                e.apply();
+                Toast.makeText(MainActivity.this, "ذخیره شد", Toast.LENGTH_SHORT).show();
+            }
+        });
+        box.addView(saveSpeed, fullTop(8));
 
         // blocked numbers: list + unblock
         box.addView(header("شماره‌های مسدود"));
