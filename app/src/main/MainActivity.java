@@ -537,11 +537,43 @@ public class MainActivity extends Activity {
         refreshUnblock();
     }
 
+    // ---- مسدودی‌ها (همان داده‌ای که TimedBlock در InCallActivity ذخیره می‌کند) ----
+    private SharedPreferences blockPrefs() {
+        return getSharedPreferences("timed_blocks", MODE_PRIVATE);
+    }
+
+    private java.util.List<String> activeBlocked() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        long now = System.currentTimeMillis();
+        SharedPreferences p = blockPrefs();
+        for (java.util.Map.Entry<String, ?> e : p.getAll().entrySet()) {
+            long exp = p.getLong(e.getKey(), 0L);
+            if (exp > now) {
+                out.add(e.getKey());
+            } else {
+                p.edit().remove(e.getKey()).apply();
+            }
+        }
+        return out;
+    }
+
+    private long expiryOfBlock(String number) {
+        return blockPrefs().getLong(number, 0L);
+    }
+
+    private void unblockNumber(String number) {
+        blockPrefs().edit().remove(number).apply();
+    }
+
+    private void unblockAllNumbers() {
+        blockPrefs().edit().clear().apply();
+    }
+
     /** اگر شماره‌ی وارد‌شده مسدود باشد، کلید «رفع مسدودی» نمایش داده می‌شود. */
     private String blockedKeyFor(String n) {
         String want = tail(n);
         if (want.isEmpty()) return null;
-        for (String k : InCallActivity.TimedBlock.activeNumbers(this)) {
+        for (String k : activeBlocked()) {
             if (want.equals(tail(k))) return k;
         }
         return null;
@@ -654,7 +686,7 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 String key = blockedKeyFor(dialNumber);
                 if (key != null) {
-                    InCallActivity.TimedBlock.unblock(MainActivity.this, key);
+                    unblockNumber(key);
                     Toast.makeText(MainActivity.this, "مسدودی برداشته شد", Toast.LENGTH_SHORT).show();
                 }
                 refreshUnblock();
@@ -1071,7 +1103,7 @@ public class MainActivity extends Activity {
 
         // blocked numbers: list + unblock
         box.addView(header("شماره‌های مسدود"));
-        final java.util.List<String> blocked = InCallActivity.TimedBlock.activeNumbers(this);
+        final java.util.List<String> blocked = activeBlocked();
         if (blocked.isEmpty()) {
             box.addView(Ui.text(this, "در حال حاضر هیچ شماره‌ای مسدود نیست.", 14, t.text2));
         }
@@ -1080,7 +1112,7 @@ public class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(12), dp(10), dp(12), dp(10));
             row.setBackground(Ui.rect(this, Ui.alpha(t.surface, 0xCC), 14));
-            long leftMs = InCallActivity.TimedBlock.expiryOf(this, num) - System.currentTimeMillis();
+            long leftMs = expiryOfBlock(num) - System.currentTimeMillis();
             long leftMin = Math.max(1, (leftMs + 59999L) / 60000L);
             TextView info = Ui.text(this, num + "  (" + leftMin + " دقیقه مانده)", 15, t.text);
             row.addView(info, new LinearLayout.LayoutParams(0, WRAP, 1f));
@@ -1088,7 +1120,7 @@ public class MainActivity extends Activity {
             un.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    InCallActivity.TimedBlock.unblock(MainActivity.this, num);
+                    unblockNumber(num);
                     recreate();
                 }
             });
@@ -1100,7 +1132,7 @@ public class MainActivity extends Activity {
             all.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    InCallActivity.TimedBlock.unblockAll(MainActivity.this);
+                    unblockAllNumbers();
                     recreate();
                 }
             });
