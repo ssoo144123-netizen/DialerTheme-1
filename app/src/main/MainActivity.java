@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     private String dialNumber = "";
     private String pendingCall;
     private TextView dialDisplay;
+    private TextView unblockBtn;   // «رفع مسدودی» داخل شماره‌گیر
 
     private int dp(float v) {
         return Ui.dp(this, v);
@@ -533,6 +534,22 @@ public class MainActivity extends Activity {
 
     private void updateDial() {
         if (dialDisplay != null) dialDisplay.setText(colorize(dialNumber));
+        refreshUnblock();
+    }
+
+    /** اگر شماره‌ی وارد‌شده مسدود باشد، کلید «رفع مسدودی» نمایش داده می‌شود. */
+    private String blockedKeyFor(String n) {
+        String want = tail(n);
+        if (want.isEmpty()) return null;
+        for (String k : InCallActivity.TimedBlock.activeNumbers(this)) {
+            if (want.equals(tail(k))) return k;
+        }
+        return null;
+    }
+
+    private void refreshUnblock() {
+        if (unblockBtn == null) return;
+        unblockBtn.setVisibility(blockedKeyFor(dialNumber) != null ? View.VISIBLE : View.GONE);
     }
 
     private static int mix(int a, int b, float f) {
@@ -629,6 +646,22 @@ public class MainActivity extends Activity {
         if (t.neon) dialDisplay.setShadowLayer(6f, 0f, 0f, t.primary);
         updateDial();
         box.addView(dialDisplay, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        unblockBtn = Ui.pill(this, "رفع مسدودی این شماره", t.primary, t.onPrimary);
+        unblockBtn.setVisibility(View.GONE);
+        unblockBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String key = blockedKeyFor(dialNumber);
+                if (key != null) {
+                    InCallActivity.TimedBlock.unblock(MainActivity.this, key);
+                    Toast.makeText(MainActivity.this, "مسدودی برداشته شد", Toast.LENGTH_SHORT).show();
+                }
+                refreshUnblock();
+            }
+        });
+        box.addView(unblockBtn, fullTop(6));
+        refreshUnblock();
 
         String[][] keys = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"*", "0", "#"}};
         int keyIdx = 0;
