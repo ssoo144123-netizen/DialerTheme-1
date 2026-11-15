@@ -56,6 +56,12 @@ public class CallService extends InCallService {
     @Override
     public void onCallAdded(Call call) {
         super.onCallAdded(call);
+        // تماس ورودی از شماره مسدود: بی‌صدا رد می‌شود و هیچ صفحه‌ای باز نمی‌شود
+        if (call.getState() == Call.STATE_RINGING
+                && InCallActivity.TimedBlock.isBlocked(this, CallManager.number(call))) {
+            call.reject(false, null);
+            return;
+        }
         CallManager.add(call);
         try {
             startActivity(activityIntent());
