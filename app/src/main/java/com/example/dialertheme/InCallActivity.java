@@ -493,6 +493,37 @@ public class InCallActivity extends Activity {
             return true;
         }
 
+        /** شماره‌های مسدودِ هنوز فعال (منقضی‌ها حذف می‌شوند). */
+        public static java.util.List<String> activeNumbers(Context ctx) {
+            java.util.List<String> result = new java.util.ArrayList<>();
+            long now = System.currentTimeMillis();
+            SharedPreferences p = prefs(ctx);
+            for (java.util.Map.Entry<String, ?> e : p.getAll().entrySet()) {
+                long expiry = p.getLong(e.getKey(), 0L);
+                if (expiry > now) {
+                    result.add(e.getKey());
+                } else {
+                    p.edit().remove(e.getKey()).apply();
+                }
+            }
+            return result;
+        }
+
+        /** زمان انقضای یک شماره (میلی‌ثانیه از epoch). */
+        public static long expiryOf(Context ctx, String number) {
+            return prefs(ctx).getLong(number, 0L);
+        }
+
+        /** رفع مسدودی یک شماره. */
+        public static void unblock(Context ctx, String number) {
+            prefs(ctx).edit().remove(number).apply();
+        }
+
+        /** رفع مسدودی همه‌ی شماره‌ها. */
+        public static void unblockAll(Context ctx) {
+            prefs(ctx).edit().clear().apply();
+        }
+
         /** مدت مسدودی انتخاب‌شده در تنظیمات (دقیقه). */
         public static int durationMinutes(Context ctx) {
             return ctx.getSharedPreferences(SETTINGS, Context.MODE_PRIVATE)
