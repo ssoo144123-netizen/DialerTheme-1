@@ -324,7 +324,7 @@ public class InCallActivity extends Activity {
         TextView sent = Ui.text(this, dtmfSent, 20, t.primary);
         sent.setGravity(Gravity.CENTER);
         sent.setMinHeight(dp(36));
-        panel.addView(sent, new LinearLayout.LayoutParams(MATCH, WRAP));
+        panel.addView(sent, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         String[][] keys = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"*", "0", "#"}};
         for (String[] rowKeys : keys) {
