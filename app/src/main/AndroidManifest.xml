@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -46,6 +47,18 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:taskAffinity="" />
+
+        <receiver
+            android:name=".InCallActivity$UnblockReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".InCallActivity$BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".CallService"
