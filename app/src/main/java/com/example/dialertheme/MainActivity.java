@@ -8,6 +8,9 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.style.ForegroundColorSpan;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -447,8 +450,38 @@ public class MainActivity extends Activity {
 
     // ----------------------------------------------------------------- keypad
 
+    private int[] keyPalette() {
+        return new int[]{t.primary, t.accent, AppTheme.GREEN, 0xFFFFC107, 0xFFFF4FD8, 0xFF3D8BFF};
+    }
+
+    private CharSequence colorize(String s) {
+        SpannableString sp = new SpannableString(s);
+        int[] pal = keyPalette();
+        for (int i = 0; i < s.length(); i++) {
+            sp.setSpan(new ForegroundColorSpan(pal[i % pal.length]), i, i + 1,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return sp;
+    }
+
     private void updateDial() {
-        if (dialDisplay != null) dialDisplay.setText(dialNumber);
+        if (dialDisplay != null) dialDisplay.setText(colorize(dialNumber));
+    }
+
+    private static int mix(int a, int b, float f) {
+        int r = (int) (((a >> 16) & 0xFF) * (1 - f) + ((b >> 16) & 0xFF) * f);
+        int g = (int) (((a >> 8) & 0xFF) * (1 - f) + ((b >> 8) & 0xFF) * f);
+        int bl = (int) ((a & 0xFF) * (1 - f) + (b & 0xFF) * f);
+        return 0xFF000000 | (r << 16) | (g << 8) | bl;
+    }
+
+    /** دکمه‌ی سه‌بعدی: گرادیان روشن به تیره + حاشیه‌ی رنگی */
+    private GradientDrawable key3d(int color) {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{mix(color, 0xFFFFFFFF, 0.35f), mix(color, 0xFF000000, 0.45f)});
+        g.setShape(GradientDrawable.OVAL);
+        g.setStroke(Ui.dp(this, 2), color);
+        return g;
     }
 
     private String subFor(String k) {
@@ -466,14 +499,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    private View keyView(final String k) {
+    private View keyView(final String k, int idx) {
+        int[] pal = keyPalette();
+        int color = pal[idx % pal.length];
         LinearLayout v = new LinearLayout(this);
         v.setOrientation(LinearLayout.VERTICAL);
         v.setGravity(Gravity.CENTER);
-        v.setBackground(Ui.keyBg(this, t));
-        TextView d = Ui.text(this, k, 26, t.text);
+        v.setBackground(key3d(color));
+        TextView d = Ui.text(this, k, 26, color);
+        d.setTypeface(null, Typeface.BOLD);
         d.setGravity(Gravity.CENTER);
-        Ui.glowText(d, t.primary, t);
+        if (t.neon) d.setShadowLayer(6f, 0f, 0f, color);
         v.addView(d);
         String sub = subFor(k);
         if (!sub.isEmpty()) {
@@ -522,14 +558,16 @@ public class MainActivity extends Activity {
         dialDisplay.setSingleLine(true);
         dialDisplay.setEllipsize(TextUtils.TruncateAt.START);
         dialDisplay.setMinHeight(dp(64));
-        Ui.glowText(dialDisplay, t.primary, t);
+        if (t.neon) dialDisplay.setShadowLayer(6f, 0f, 0f, t.primary);
+        updateDial();
         box.addView(dialDisplay, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         String[][] keys = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"*", "0", "#"}};
+        int keyIdx = 0;
         for (String[] rowKeys : keys) {
             LinearLayout r = new LinearLayout(this);
             r.setGravity(Gravity.CENTER);
-            for (String k : rowKeys) r.addView(keyView(k), keyLp());
+            for (String k : rowKeys) r.addView(keyView(k, keyIdx++), keyLp());
             box.addView(r);
         }
 
@@ -539,7 +577,7 @@ public class MainActivity extends Activity {
 
         LinearLayout call = new LinearLayout(this);
         call.setGravity(Gravity.CENTER);
-        call.setBackground(Ui.glowButton(this, AppTheme.GREEN));
+        call.setBackground(key3d(AppTheme.GREEN));
         call.addView(new IconView(this, IconView.PHONE, Color.WHITE, false),
                 new LinearLayout.LayoutParams(dp(30), dp(30)));
         call.setOnClickListener(new View.OnClickListener() {
