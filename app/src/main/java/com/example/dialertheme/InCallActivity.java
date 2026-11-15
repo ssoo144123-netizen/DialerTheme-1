@@ -26,6 +26,7 @@ import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -41,6 +42,7 @@ public class InCallActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean finishScheduled = false;
     private boolean showKeypad = false;      // صفحه‌کلید DTMF درون تماس
+    private FrameLayout avatarBox;           // آواتار بزرگ بالای صفحه
     private String dtmfSent = "";            // کدهایی که تا الان فرستاده شده
 
     private final CallManager.Listener listener = new CallManager.Listener() {
@@ -89,7 +91,7 @@ public class InCallActivity extends Activity {
         root.setPadding(dp(24), dp(56), dp(24), dp(28));
 
         // avatar with pulsing neon ring
-        FrameLayout avatarBox = new FrameLayout(this);
+        avatarBox = new FrameLayout(this);
         ring = new View(this);
         GradientDrawable rg = new GradientDrawable();
         rg.setShape(GradientDrawable.OVAL);
@@ -142,7 +144,11 @@ public class InCallActivity extends Activity {
         root.addView(controls, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(scroll);
 
         CallManager.addListener(listener);
         refresh();
@@ -334,8 +340,8 @@ public class InCallActivity extends Activity {
                 TextView b = Ui.text(this, k, 22, t.text);
                 b.setGravity(Gravity.CENTER);
                 b.setBackground(Ui.circle(Ui.alpha(t.surface, 0xE0)));
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(60), dp(60));
-                lp.setMargins(dp(6), dp(4), dp(6), dp(4));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(50), dp(50));
+                lp.setMargins(dp(5), dp(2), dp(5), dp(2));
                 b.setOnTouchListener(new View.OnTouchListener() {
                     @Override
                     public boolean onTouch(View v, MotionEvent e) {
@@ -364,6 +370,10 @@ public class InCallActivity extends Activity {
     private void buildControls(final Call c) {
         controls.removeAllViews();
         int s = c.getState();
+        boolean keypadOpen = showKeypad && (s == Call.STATE_ACTIVE || s == Call.STATE_HOLDING);
+        if (avatarBox != null) {
+            avatarBox.setVisibility(keypadOpen ? View.GONE : View.VISIBLE);
+        }
 
         if (s == Call.STATE_RINGING) {
             LinearLayout r = row();
