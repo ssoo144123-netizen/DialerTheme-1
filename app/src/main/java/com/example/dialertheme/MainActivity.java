@@ -25,7 +25,9 @@ import android.telecom.TelecomManager;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
+import android.provider.ContactsContract;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -161,6 +163,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int rc, int result, Intent data) {
         super.onActivityResult(rc, result, data);
+        if (rc == 77) {
+            handlePickedContact(result, data);
+            return;
+        }
         if (rc == 3 && result == RESULT_OK && data != null && data.getData() != null) {
             final Uri u = data.getData();
             new Thread(new Runnable() {
@@ -228,41 +234,38 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- actions
 
-    /** انتخاب یک شماره از مخاطبین و گذاشتن آن در فیلد داده‌شده */
+    private EditText pendingPick;
+
+    /** باز کردن صفحه‌ی مخاطبین گوشی برای انتخاب شماره (بدون نیاز به اجازه‌ی جداگانه) */
     private void pickContact(final EditText target) {
-        if (!has(Manifest.permission.READ_CONTACTS)) {
-            requestMissingPermissions();
-            return;
+        pendingPick = target;
+        Intent i = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+        try {
+            startActivityForResult(i, 77);
+        } catch (ActivityNotFoundException e) {
+            pendingPick = null;
+            Toast.makeText(this, "برنامه‌ی مخاطبین پیدا نشد", Toast.LENGTH_SHORT).show();
         }
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final List<ContactUtil.Contact> all = ContactUtil.loadAll(MainActivity.this);
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (all.isEmpty()) {
-                            Toast.makeText(MainActivity.this, "مخاطبی پیدا نشد", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        String[] items = new String[all.size()];
-                        for (int i = 0; i < all.size(); i++) {
-                            items[i] = all.get(i).name + "  " + all.get(i).number;
-                        }
-                        new AlertDialog.Builder(MainActivity.this)
-                                .setTitle("انتخاب مخاطب")
-                                .setItems(items, new DialogInterface.OnClickListener() {
-                                    @Override
-                                    public void onClick(DialogInterface dialog, int which) {
-                                        target.setText(all.get(which).number);
-                                    }
-                                })
-                                .setNegativeButton("انصراف", null)
-                                .show();
-                    }
-                });
+    }
+
+    private void handlePickedContact(int result, Intent data) {
+        EditText target = pendingPick;
+        pendingPick = null;
+        if (result != RESULT_OK || data == null || data.getData() == null || target == null) return;
+        Cursor cur = null;
+        try {
+            cur = getContentResolver().query(data.getData(),
+                    new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER}, null, null, null);
+            if (cur != null && cur.moveToFirst()) {
+                target.setText(cur.getString(0));
+            } else {
+                Toast.makeText(this, "شماره‌ای پیدا نشد", Toast.LENGTH_SHORT).show();
             }
-        }).start();
+        } catch (Exception e) {
+            Toast.makeText(this, "شماره خوانده نشد", Toast.LENGTH_SHORT).show();
+        } finally {
+            if (cur != null) cur.close();
+        }
     }
 
     private SharedPreferences speedPrefs() {
