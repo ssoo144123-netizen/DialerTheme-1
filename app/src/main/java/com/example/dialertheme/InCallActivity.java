@@ -1,19 +1,11 @@
 package com.example.dialertheme;
 
 import android.animation.ObjectAnimator;
-import android.app.AlarmManager;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
-import android.content.ContentValues;
-import android.content.Context;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -22,7 +14,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.BlockedNumberContract;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
 import android.telecom.VideoProfile;
@@ -313,18 +304,11 @@ public class InCallActivity extends Activity {
         String number = CallManager.number(c);
         if (TextUtils.isEmpty(number)) {
             Toast.makeText(this, "شماره ناشناس قابل مسدودسازی نیست", Toast.LENGTH_SHORT).show();
-        } else if (!TimedBlock.isSupported(this)) {
-            Toast.makeText(this, "مسدودسازی در این نسخه اندروید پشتیبانی نمی‌شود",
-                    Toast.LENGTH_SHORT).show();
         } else if (TimedBlock.isBlocked(this, number)) {
             Toast.makeText(this, "این شماره از قبل مسدود است", Toast.LENGTH_SHORT).show();
         } else {
-            try {
-                TimedBlock.block(this, number);
-                Toast.makeText(this, "به مدت ۵ دقیقه مسدود شد", Toast.LENGTH_SHORT).show();
-            } catch (Exception e) {
-                Toast.makeText(this, "مسدودسازی ممکن نشد", Toast.LENGTH_SHORT).show();
-            }
+            TimedBlock.block(this, number);
+            Toast.makeText(this, "به مدت ۵ دقیقه مسدود شد", Toast.LENGTH_SHORT).show();
         }
         c.reject(false, null);
     }
@@ -408,11 +392,9 @@ public class InCallActivity extends Activity {
         controls.addView(end);
     }
 
-
     /**
-     * مسدودسازی زمان‌دار: شماره را به مدت DURATION_MS در لیست مسدودهای اندروید نگه می‌دارد
-     * و پس از آن حذف می‌کند. زمان انقضا در SharedPreferences ذخیره می‌شود تا بعد از
-     * ری‌استارت گوشی هم زمان‌بندی بازسازی شود.
+     * مسدودسازی زمان‌دار در سطح برنامه (بدون BlockedNumberContract، سازگار با اندروید ۶ به بالا).
+     * شماره و زمان انقضا در SharedPreferences ذخیره می‌شود؛ بنابراین بعد از ری‌استارت هم باقی می‌ماند.
      */
     public static final class TimedBlock {
 
@@ -422,102 +404,28 @@ public class InCallActivity extends Activity {
         private TimedBlock() {
         }
 
-        public static boolean isSupported(Context ctx) {
-            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                    && BlockedNumberContract.canCurrentUserBlockNumbers(ctx);
+        private static SharedPreferences prefs(Context ctx) {
+            return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         }
 
+        /** آیا این شماره در حال حاضر مسدود است؟ شماره‌های منقضی‌شده را پاک می‌کند. */
         public static boolean isBlocked(Context ctx, String number) {
-            return BlockedNumberContract.isBlocked(ctx, number);
+            if (TextUtils.isEmpty(number)) return false;
+            SharedPreferences p = prefs(ctx);
+            long expiry = p.getLong(number, 0L);
+            if (expiry == 0L) return false;
+            if (System.currentTimeMillis() >= expiry) {
+                p.edit().remove(number).apply();
+                return false;
+            }
+            return true;
         }
 
         /** شماره را برای مدت DURATION_MS مسدود می‌کند. */
         public static void block(Context ctx, String number) {
-            ContentValues values = new ContentValues();
-            values.put(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, number);
-            ctx.getContentResolver().insert(BlockedNumberContract.BlockedNumbers.CONTENT_URI, values);
-
-            long expiry = System.currentTimeMillis() + DURATION_MS;
-            prefs(ctx).edit().putLong(number, expiry).apply();
-            schedule(ctx, number, expiry);
-        }
-
-        /** شماره را از لیست مسدودها حذف و زمان‌بندی آن را لغو می‌کند. */
-        public static void unblock(Context ctx, String number) {
-            try {
-                ctx.getContentResolver().delete(
-                        BlockedNumberContract.BlockedNumbers.CONTENT_URI,
-                        BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER + "=?",
-                        new String[]{number});
-            } catch (Exception ignored) {
-            }
-            prefs(ctx).edit().remove(number).apply();
-
-            PendingIntent pi = pending(ctx, number, PendingIntent.FLAG_NO_CREATE);
-            if (pi != null) {
-                AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-                if (am != null) am.cancel(pi);
-                pi.cancel();
-            }
-        }
-
-        /** بعد از ری‌استارت: شماره‌های منقضی‌شده را آزاد و بقیه را دوباره زمان‌بندی می‌کند. */
-        public static void rescheduleAll(Context ctx) {
-            long now = System.currentTimeMillis();
-            List<String> numbers = new ArrayList<>();
-            for (Map.Entry<String, ?> e : prefs(ctx).getAll().entrySet()) {
-                numbers.add(e.getKey());
-            }
-            for (String number : numbers) {
-                long expiry = prefs(ctx).getLong(number, 0L);
-                if (expiry <= now) {
-                    unblock(ctx, number);
-                } else {
-                    schedule(ctx, number, expiry);
-                }
-            }
-        }
-
-        private static void schedule(Context ctx, String number, long expiry) {
-            PendingIntent pi = pending(ctx, number, PendingIntent.FLAG_UPDATE_CURRENT);
-            AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-            if (am != null && pi != null) {
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiry, pi);
-            }
-        }
-
-        private static PendingIntent pending(Context ctx, String number, int flags) {
-            Intent i = new Intent(ctx, UnblockReceiver.class);
-            i.putExtra(UnblockReceiver.EXTRA_NUMBER, number);
-            return PendingIntent.getBroadcast(ctx, number.hashCode(), i,
-                    flags | PendingIntent.FLAG_IMMUTABLE);
-        }
-
-        private static SharedPreferences prefs(Context ctx) {
-            return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        }
-    }
-
-    public static class UnblockReceiver extends BroadcastReceiver {
-
-        public static final String EXTRA_NUMBER = "number";
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            String number = intent.getStringExtra(EXTRA_NUMBER);
-            if (number != null) {
-                TimedBlock.unblock(context, number);
-            }
-        }
-    }
-
-    public static class BootReceiver extends BroadcastReceiver {
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent != null && Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
-                TimedBlock.rescheduleAll(context);
-            }
+            prefs(ctx).edit()
+                    .putLong(number, System.currentTimeMillis() + DURATION_MS)
+                    .apply();
         }
     }
 }
