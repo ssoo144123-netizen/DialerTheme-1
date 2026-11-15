@@ -6,6 +6,7 @@ import android.app.role.RoleManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.Spannable;
@@ -451,10 +452,76 @@ public class MainActivity extends Activity {
     // ----------------------------------------------------------------- keypad
 
     private int[] keyPalette() {
-        return new int[]{t.primary, t.accent, AppTheme.GREEN, 0xFFFFC107, 0xFFFF4FD8, 0xFF3D8BFF};
+        switch (kpPrefs().getInt("palette", 0)) {
+            case 1:
+                return new int[]{0xFFFF5252, 0xFFFF9800, 0xFFFFEB3B, 0xFF4CAF50, 0xFF2196F3, 0xFF9C27B0};
+            case 2:
+                return new int[]{0xFFF8BBD0, 0xFFBBDEFB, 0xFFC8E6C9, 0xFFFFF9C4, 0xFFD1C4E9, 0xFFFFCCBC};
+            case 3:
+                return new int[]{t.primary, mix(t.primary, t.accent, 0.5f), t.accent};
+            default:
+                return new int[]{t.primary, t.accent, AppTheme.GREEN, 0xFFFFC107, 0xFFFF4FD8, 0xFF3D8BFF};
+        }
+    }
+
+    /** اندازه‌ی کلید به دی‌پی: کوچک / متوسط / بزرگ */
+    private int kpSizeDp() {
+        int[] sizes = {56, 68, 80};
+        int i = kpPrefs().getInt("size", 1);
+        return sizes[(i < 0 || i > 2) ? 1 : i];
+    }
+
+    /** رنگ پس‌زمینه‌ی کلید */
+    private int kpBgColor() {
+        switch (kpPrefs().getInt("bg", 0)) {
+            case 1:
+                return 0xFFF4F4F7;
+            case 2:
+                return mix(t.bg, t.primary, 0.25f);
+            case 3:
+                return t.surface;
+            default:
+                return 0xFF1B1B22;
+        }
+    }
+
+    /** شکل کلید: 0 سه‌بعدی دایره، 1 تخت دایره، 2 مربع گرد سه‌بعدی، 3 قرصی */
+    private GradientDrawable keyShape(int rim, int bg) {
+        int style = kpPrefs().getInt("style", 0);
+        boolean threeD = style == 0 || style == 2;
+        GradientDrawable g;
+        if (threeD) {
+            g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{mix(bg, 0xFFFFFFFF, 0.25f), mix(bg, 0xFF000000, 0.35f)});
+        } else {
+            g = new GradientDrawable();
+            g.setColor(bg);
+        }
+        if (style == 0 || style == 1) {
+            g.setShape(GradientDrawable.OVAL);
+        } else {
+            g.setShape(GradientDrawable.RECTANGLE);
+            g.setCornerRadius(Ui.dp(this, style == 2 ? 18 : kpSizeDp() / 2f));
+        }
+        g.setStroke(Ui.dp(this, 2), rim);
+        return g;
+    }
+
+    // ---- تنظیمات صفحه شماره‌گیر (شکل و رنگ) ----
+    private SharedPreferences kpPrefs() {
+        return getSharedPreferences("keypad", MODE_PRIVATE);
+    }
+
+    private boolean kpFlat() {
+        return kpPrefs().getInt("style", 0) == 1;
+    }
+
+    private boolean kpMono() {
+        return kpPrefs().getInt("color", 0) == 1;
     }
 
     private CharSequence colorize(String s) {
+        if (kpMono()) return s;
         SpannableString sp = new SpannableString(s);
         int[] pal = keyPalette();
         for (int i = 0; i < s.length(); i++) {
@@ -501,11 +568,11 @@ public class MainActivity extends Activity {
 
     private View keyView(final String k, int idx) {
         int[] pal = keyPalette();
-        int color = pal[idx % pal.length];
+        int color = kpMono() ? t.primary : pal[idx % pal.length];
         LinearLayout v = new LinearLayout(this);
         v.setOrientation(LinearLayout.VERTICAL);
         v.setGravity(Gravity.CENTER);
-        v.setBackground(key3d(color));
+        v.setBackground(keyShape(color, kpBgColor()));
         TextView d = Ui.text(this, k, 26, color);
         d.setTypeface(null, Typeface.BOLD);
         d.setGravity(Gravity.CENTER);
@@ -538,7 +605,8 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams keyLp() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(68), dp(68));
+        int size = dp(kpSizeDp());
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(size, size);
         p.setMargins(dp(8), dp(6), dp(8), dp(6));
         return p;
     }
@@ -577,7 +645,7 @@ public class MainActivity extends Activity {
 
         LinearLayout call = new LinearLayout(this);
         call.setGravity(Gravity.CENTER);
-        call.setBackground(key3d(AppTheme.GREEN));
+        call.setBackground(keyShape(AppTheme.GREEN, AppTheme.GREEN));
         call.addView(new IconView(this, IconView.PHONE, Color.WHITE, false),
                 new LinearLayout.LayoutParams(dp(30), dp(30)));
         call.setOnClickListener(new View.OnClickListener() {
@@ -783,6 +851,41 @@ public class MainActivity extends Activity {
         return p;
     }
 
+    private interface Pick {
+        void on(int index);
+    }
+
+    private Pick savePref(final String key) {
+        return new Pick() {
+            @Override
+            public void on(int i) {
+                kpPrefs().edit().putInt(key, i).apply();
+            }
+        };
+    }
+
+    private LinearLayout chipRow(String[] labels, int sel, final Pick pick) {
+        LinearLayout row = new LinearLayout(this);
+        for (int i = 0; i < labels.length; i++) {
+            final int idx = i;
+            boolean on = sel == i;
+            TextView chip = Ui.pill(this, labels[i],
+                    on ? t.primary : Ui.alpha(t.surface, 0xCC), on ? t.onPrimary : t.text);
+            chip.setPadding(dp(4), dp(10), dp(4), dp(10));
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pick.on(idx);
+                    recreate();
+                }
+            });
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, WRAP, 1f);
+            cp.setMargins(dp(3), 0, dp(3), 0);
+            row.addView(chip, cp);
+        }
+        return row;
+    }
+
     private View buildSettings() {
         ScrollView sv = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
@@ -915,6 +1018,41 @@ public class MainActivity extends Activity {
             sizes.addView(chip, cp);
         }
         box.addView(sizes, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        // block duration
+        box.addView(header("مدت مسدودی تماس‌گیرنده"));
+        box.addView(Ui.text(this,
+                "بعد از این مدت، شماره از لیست مسدودها خارج می‌شود و تماس‌هایش دوباره زنگ می‌زنند.",
+                14, t.text2));
+        final int[] minutesValues = {5, 15, 60, 1440};
+        int curMin = InCallActivity.TimedBlock.durationMinutes(this);
+        int selMin = 0;
+        for (int i = 0; i < minutesValues.length; i++) if (minutesValues[i] == curMin) selMin = i;
+        box.addView(chipRow(new String[]{"۵ دقیقه", "۱۵ دقیقه", "۱ ساعت", "۲۴ ساعت"}, selMin,
+                new Pick() {
+                    @Override
+                    public void on(int i) {
+                        InCallActivity.TimedBlock.setDurationMinutes(MainActivity.this, minutesValues[i]);
+                    }
+                }), fullTop(8));
+
+        // keypad appearance
+        box.addView(header("صفحه شماره‌گیر"));
+        box.addView(Ui.text(this, "شکل کلیدها", 14, t.text2));
+        box.addView(chipRow(new String[]{"سه‌بعدی دایره", "تخت دایره", "مربع گرد", "قرصی"},
+                kpPrefs().getInt("style", 0), savePref("style")), fullTop(6));
+        box.addView(Ui.text(this, "اندازه کلید", 14, t.text2));
+        box.addView(chipRow(new String[]{"کوچک", "متوسط", "بزرگ"},
+                kpPrefs().getInt("size", 1), savePref("size")), fullTop(6));
+        box.addView(Ui.text(this, "پس‌زمینه کلید", 14, t.text2));
+        box.addView(chipRow(new String[]{"تیره", "روشن", "رنگ تم", "سطح تم"},
+                kpPrefs().getInt("bg", 0), savePref("bg")), fullTop(6));
+        box.addView(Ui.text(this, "رنگ‌بندی", 14, t.text2));
+        box.addView(chipRow(new String[]{"رنگی", "تک‌رنگ (رنگ تم)"},
+                kpPrefs().getInt("color", 0), savePref("color")), fullTop(6));
+        box.addView(Ui.text(this, "پالت رنگ", 14, t.text2));
+        box.addView(chipRow(new String[]{"پیش‌فرض", "رنگین‌کمان", "پاستلی", "هم‌خانواده تم"},
+                kpPrefs().getInt("palette", 0), savePref("palette")), fullTop(6));
 
         TextView tip = Ui.text(this,
                 "برای برگشتن به شماره‌گیر قبلی: تنظیمات اندروید ← برنامه‌ها ← برنامه‌های پیش‌فرض ← تلفن.",
