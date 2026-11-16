@@ -28,6 +28,9 @@ import android.text.TextWatcher;
 import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
 import android.provider.ContactsContract;
+import android.media.AudioManager;
+import android.media.RingtoneManager;
+import android.media.ToneGenerator;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -167,6 +170,17 @@ public class MainActivity extends Activity {
             handlePickedContact(result, data);
             return;
         }
+        if (rc == 78) {
+            if (result == RESULT_OK && data != null) {
+                Uri picked = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+                SharedPreferences.Editor e = getSharedPreferences("ringer", MODE_PRIVATE).edit();
+                if (picked == null) e.remove("uri");
+                else e.putString("uri", picked.toString());
+                e.apply();
+                recreate();
+            }
+            return;
+        }
         if (rc == 3 && result == RESULT_OK && data != null && data.getData() != null) {
             final Uri u = data.getData();
             new Thread(new Runnable() {
@@ -234,6 +248,44 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- actions
 
+    private ToneGenerator toneGen;
+
+    /** پخش صدای کوتاه برای هر کلید شماره‌گیری، طبق انتخاب کاربر در تنظیمات */
+    private void playKeySound(String k) {
+        int mode = kpPrefs().getInt("sound", 0);
+        if (mode == 4) return; // بی‌صدا
+        try {
+            if (toneGen == null) toneGen = new ToneGenerator(AudioManager.STREAM_MUSIC, 70);
+            int code;
+            switch (mode) {
+                case 1: code = ToneGenerator.TONE_PROP_BEEP; break;
+                case 2: code = ToneGenerator.TONE_PROP_ACK; break;
+                case 3: code = ToneGenerator.TONE_CDMA_PIP; break;
+                default: code = dtmfCode(k); break;
+            }
+            toneGen.startTone(code, 120);
+        } catch (RuntimeException ignored) {
+            // بعضی دستگاه‌ها اجازه‌ی تولید صدا را نمی‌دهند
+        }
+    }
+
+    private static int dtmfCode(String k) {
+        switch (k) {
+            case "0": return ToneGenerator.TONE_DTMF_0;
+            case "1": return ToneGenerator.TONE_DTMF_1;
+            case "2": return ToneGenerator.TONE_DTMF_2;
+            case "3": return ToneGenerator.TONE_DTMF_3;
+            case "4": return ToneGenerator.TONE_DTMF_4;
+            case "5": return ToneGenerator.TONE_DTMF_5;
+            case "6": return ToneGenerator.TONE_DTMF_6;
+            case "7": return ToneGenerator.TONE_DTMF_7;
+            case "8": return ToneGenerator.TONE_DTMF_8;
+            case "9": return ToneGenerator.TONE_DTMF_9;
+            case "*": return ToneGenerator.TONE_DTMF_S;
+            default: return ToneGenerator.TONE_DTMF_P;
+        }
+    }
+
     private EditText pendingPick;      // فیلد تنظیمات که شماره‌اش پر می‌شود
     private int pendingSpeedDigit = 0; // کلید شماره‌گیر سریع که شماره‌اش ذخیره می‌شود
 
@@ -245,6 +297,21 @@ public class MainActivity extends Activity {
     }
 
     /** باز کردن صفحه‌ی مخاطبین گوشی (بدون نیاز به اجازه‌ی جداگانه) */
+    /** انتخاب آهنگ زنگ تماس ورودی از فهرست خود گوشی */
+    private void launchRingtonePicker(String existing) {
+        Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_RINGTONE);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                existing == null ? null : Uri.parse(existing));
+        try {
+            startActivityForResult(i, 78);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "انتخاب آهنگ در این گوشی ممکن نیست", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void launchContactPicker() {
         Intent i = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
         try {
@@ -460,7 +527,7 @@ public class MainActivity extends Activity {
     }
 
     private static class ContactHolder {
-        TextView avatar, name, number, wa;
+        TextView avatar, name, number, wa, unblock;
         IconView sms;
     }
 
@@ -518,6 +585,10 @@ public class MainActivity extends Activity {
                 h.number.setTextDirection(View.TEXT_DIRECTION_LTR);
                 col.addView(h.name);
                 col.addView(h.number);
+                h.unblock = Ui.pill(MainActivity.this, "رفع مسدودی", t.primary, t.onPrimary);
+                LinearLayout.LayoutParams ub = new LinearLayout.LayoutParams(WRAP, WRAP);
+                ub.topMargin = dp(4);
+                col.addView(h.unblock, ub);
                 LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, WRAP, 1f);
                 cp.setMarginStart(dp(12));
                 row.addView(col, cp);
@@ -543,6 +614,16 @@ public class MainActivity extends Activity {
             String badge = (c.whatsapp ? "  · واتساپ" : "") + (c.telegram ? "  · تلگرام" : "");
             h.number.setText(c.number + badge);
             h.wa.setVisibility(c.whatsapp ? View.VISIBLE : View.GONE);
+            final String conBlockKey = blockedKeyFor(c.number);
+            h.unblock.setVisibility(conBlockKey != null ? View.VISIBLE : View.GONE);
+            h.unblock.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    unblockNumber(conBlockKey);
+                    Toast.makeText(MainActivity.this, "مسدودی برداشته شد", Toast.LENGTH_SHORT).show();
+                    ContactAdapter.this.notifyDataSetChanged();
+                }
+            });
             h.wa.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -745,6 +826,7 @@ public class MainActivity extends Activity {
         v.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
+                playKeySound(k);
                 dialNumber += k;
                 updateDial();
             }
@@ -884,7 +966,7 @@ public class MainActivity extends Activity {
 
     private static class RecentHolder {
         IconView icon;
-        TextView title, sub;
+        TextView title, sub, unblock;
     }
 
     // ---------------------------------------------------------- گزارش تماس‌ها
@@ -1153,6 +1235,10 @@ public class MainActivity extends Activity {
                 h.sub.setSingleLine(true);
                 col.addView(h.title);
                 col.addView(h.sub);
+                h.unblock = Ui.pill(MainActivity.this, "رفع مسدودی", t.primary, t.onPrimary);
+                LinearLayout.LayoutParams ub = new LinearLayout.LayoutParams(WRAP, WRAP);
+                ub.topMargin = dp(4);
+                col.addView(h.unblock, ub);
                 LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, WRAP, 1f);
                 cp.setMarginStart(dp(12));
                 row.addView(col, cp);
@@ -1183,6 +1269,16 @@ public class MainActivity extends Activity {
             h.title.setText(title);
             h.title.setTextColor(missed ? AppTheme.RED : t.text);
             h.sub.setText(sub);
+            final String recBlockKey = r.number == null ? null : blockedKeyFor(r.number);
+            h.unblock.setVisibility(recBlockKey != null ? View.VISIBLE : View.GONE);
+            h.unblock.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    unblockNumber(recBlockKey);
+                    Toast.makeText(MainActivity.this, "مسدودی برداشته شد", Toast.LENGTH_SHORT).show();
+                    RecentAdapter.this.notifyDataSetChanged();
+                }
+            });
             return cv;
         }
     }
@@ -1406,6 +1502,27 @@ public class MainActivity extends Activity {
                     }
                 }), fullTop(8));
 
+        // incoming ringtone
+        box.addView(header("آهنگ زنگ تماس ورودی"));
+        final String ringUri = getSharedPreferences("ringer", MODE_PRIVATE).getString("uri", null);
+        String ringName = "پیش‌فرض گوشی";
+        if (ringUri != null) {
+            try {
+                ringName = RingtoneManager.getRingtone(this, Uri.parse(ringUri)).getTitle(this);
+            } catch (Exception e) {
+                ringName = "آهنگ انتخابی";
+            }
+        }
+        box.addView(Ui.text(this, "آهنگ فعلی: " + ringName, 14, t.text2));
+        TextView pickRing = Ui.pill(this, "انتخاب آهنگ", t.primary, t.onPrimary);
+        pickRing.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchRingtonePicker(ringUri);
+            }
+        });
+        box.addView(pickRing, fullTop(6));
+
         // speed dial
         box.addView(header("شماره‌گیری سریع"));
         box.addView(Ui.text(this,
@@ -1513,6 +1630,9 @@ public class MainActivity extends Activity {
         box.addView(Ui.text(this, "پالت رنگ", 14, t.text2));
         box.addView(chipRow(new String[]{"پیش‌فرض", "رنگین‌کمان", "پاستلی", "هم‌خانواده تم"},
                 kpPrefs().getInt("palette", 0), savePref("palette")), fullTop(6));
+        box.addView(Ui.text(this, "صدای کلیدها", 14, t.text2));
+        box.addView(chipRow(new String[]{"DTMF", "بیپ", "تأیید", "پیپ", "بی‌صدا"},
+                kpPrefs().getInt("sound", 0), savePref("sound")), fullTop(6));
 
         TextView tip = Ui.text(this,
                 "برای برگشتن به شماره‌گیر قبلی: تنظیمات اندروید ← برنامه‌ها ← برنامه‌های پیش‌فرض ← تلفن.",

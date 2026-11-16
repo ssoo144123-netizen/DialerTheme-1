@@ -5,6 +5,9 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Build;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
@@ -16,6 +19,37 @@ public class CallService extends InCallService {
     private static final int NOTIF_ID = 77;
 
     private int lastKey = 0;
+
+    /** پخش آهنگ زنگ انتخابی کاربر برای تماس ورودی */
+    private static MediaPlayer ringer;
+
+    private void startCustomRing() {
+        String uri = getSharedPreferences("ringer", MODE_PRIVATE).getString("uri", null);
+        if (uri == null) return; // پیش‌فرض گوشی
+        stopCustomRing();
+        MediaPlayer mp = new MediaPlayer();
+        try {
+            mp.setAudioStreamType(AudioManager.STREAM_RING);
+            mp.setDataSource(this, Uri.parse(uri));
+            mp.setLooping(true);
+            mp.prepare();
+            mp.start();
+            ringer = mp;
+        } catch (Exception e) {
+            mp.release();
+        }
+    }
+
+    private static void stopCustomRing() {
+        if (ringer != null) {
+            try {
+                ringer.stop();
+            } catch (Exception ignored) {
+            }
+            ringer.release();
+            ringer = null;
+        }
+    }
 
     private final CallManager.Listener listener = new CallManager.Listener() {
         @Override
@@ -41,6 +75,7 @@ public class CallService extends InCallService {
 
     @Override
     public void onDestroy() {
+        stopCustomRing();
         CallManager.removeListener(listener);
         CallManager.service = null;
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -63,6 +98,15 @@ public class CallService extends InCallService {
             return;
         }
         CallManager.add(call);
+        if (call.getState() == Call.STATE_RINGING) {
+            startCustomRing();
+            call.registerCallback(new Call.Callback() {
+                @Override
+                public void onStateChanged(Call c, int state) {
+                    if (state != Call.STATE_RINGING) stopCustomRing();
+                }
+            });
+        }
         try {
             startActivity(activityIntent());
         } catch (Exception ignored) {
@@ -73,6 +117,7 @@ public class CallService extends InCallService {
     public void onCallRemoved(Call call) {
         super.onCallRemoved(call);
         CallManager.remove(call);
+        stopCustomRing();
     }
 
     @Override
