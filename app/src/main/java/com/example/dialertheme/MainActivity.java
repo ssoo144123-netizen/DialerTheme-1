@@ -71,6 +71,9 @@ public class MainActivity extends Activity {
     private String pendingCall;
     private TextView dialDisplay;
     private TextView unblockBtn;   // «رفع مسدودی» داخل شماره‌گیر
+    private TextView speedHint;    // نمایش خانه‌ی شماره‌گیر سریع (مثلاً *10)
+    private TextView speedDelBtn;  // حذف خانه‌ی انتخاب‌شده از خود شماره‌گیر
+    private TextView addSpeedBtn;  // افزودن شماره‌ی وارد‌شده به یک خانه‌ی سریع
 
     private int dp(float v) {
         return Ui.dp(this, v);
@@ -358,8 +361,9 @@ public class MainActivity extends Activity {
 
     /** اگر شماره‌گیری به شکل *NN باشد (NN بین ۱ و ۱۰۰)، شماره‌ی خانه‌ی سریع را برمی‌گرداند. */
     private String speedSlotFromDial(String dial) {
-        if (dial == null || !dial.matches("\\*[0-9]{1,3}")) return null;
-        int n = Integer.parseInt(dial.substring(1));
+        if (dial == null || !dial.matches("\\*[0-9]{1,3}#?")) return null;
+        String digits = dial.substring(1).replace("#", "");
+        int n = Integer.parseInt(digits);
         return (n >= 1 && n <= 100) ? String.valueOf(n) : null;
     }
 
@@ -370,40 +374,6 @@ public class MainActivity extends Activity {
         } catch (NumberFormatException e) {
             return -1;
         }
-    }
-
-    /** فهرست خانه‌های ذخیره‌شده؛ با لمس هر خط، کد و شماره در فرم بالا قرار می‌گیرد. */
-    private void refreshSlotList(final TextView listView, final EditText codeField, final EditText numField) {
-        final java.util.List<Integer> codes = new java.util.ArrayList<>();
-        for (int n = 1; n <= 100; n++) {
-            if (!speedNumber(n).isEmpty()) codes.add(n);
-        }
-        if (codes.isEmpty()) {
-            listView.setText("هیچ خانه‌ای ذخیره نشده است.");
-            return;
-        }
-        StringBuilder sb = new StringBuilder("خانه‌های ذخیره‌شده (برای ویرایش لمس کنید):\n");
-        for (int n : codes) {
-            sb.append(n).append("  →  ").append(speedNumber(n)).append("\n");
-        }
-        listView.setText(sb.toString().trim());
-        listView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // لمس فهرست: اولین خانه را بارگذاری نمی‌کند؛ کد را خودتان وارد کنید تا ویرایش شود
-                Toast.makeText(MainActivity.this, "کد را در فیلد بالا وارد کنید تا شماره‌اش نمایش داده شود",
-                        Toast.LENGTH_SHORT).show();
-            }
-        });
-        codeField.addTextChangedListener(new android.text.TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence a, int b, int c, int d) { }
-            @Override public void onTextChanged(CharSequence a, int b, int c, int d) { }
-            @Override
-            public void afterTextChanged(android.text.Editable e) {
-                int code = parseSlot(e.toString());
-                numField.setText(code < 1 ? "" : speedNumber(code));
-            }
-        });
     }
 
     private String speedNumber(int digit) {
@@ -775,7 +745,53 @@ public class MainActivity extends Activity {
     private void updateDial() {
         if (dialDisplay != null) dialDisplay.setText(colorize(dialNumber));
         refreshUnblock();
+        refreshSpeedHint();
     }
+
+    private void refreshSpeedHint() {
+        if (speedHint == null) return;
+        String slot = speedSlotFromDial(dialNumber);
+        boolean plainNumber = dialNumber.matches("[0-9+]{2,}");
+        if (addSpeedBtn != null) addSpeedBtn.setVisibility(plainNumber ? View.VISIBLE : View.GONE);
+        if (slot == null) {
+            speedHint.setText("");
+            if (speedDelBtn != null) speedDelBtn.setVisibility(View.GONE);
+            return;
+        }
+        String n = speedNumber(Integer.parseInt(slot));
+        speedHint.setText("خانه‌ی " + slot + ": " + (n.isEmpty() ? "خالی است" : n));
+        if (speedDelBtn != null) speedDelBtn.setVisibility(n.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    /** دریافت کد خانه (۱ تا ۱۰۰) و ذخیره‌ی شماره‌ی روی صفحه در همان خانه (افزودن یا تغییر) */
+    private void showAddSpeedDialog() {
+        final String number = dialNumber;
+        final EditText codeField = new EditText(this);
+        codeField.setSingleLine(true);
+        codeField.setInputType(InputType.TYPE_CLASS_NUMBER);
+        codeField.setHint("کد (۱ تا ۱۰۰)");
+        codeField.setTextDirection(View.TEXT_DIRECTION_LTR);
+        new AlertDialog.Builder(this)
+                .setTitle("افزودن به شماره‌گیری سریع")
+                .setMessage("شماره: " + number)
+                .setView(codeField)
+                .setPositiveButton("ذخیره", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        int code = parseSlot(codeField.getText().toString());
+                        if (code < 1) {
+                            Toast.makeText(MainActivity.this, "کد باید بین ۱ تا ۱۰۰ باشد", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        speedPrefs().edit().putString("d" + code, number).apply();
+                        Toast.makeText(MainActivity.this, "روی خانه‌ی " + code + " ذخیره شد", Toast.LENGTH_SHORT).show();
+                        refreshSpeedHint();
+                    }
+                })
+                .setNegativeButton("انصراف", null)
+                .show();
+    }
+
 
     // ---- مسدودی‌ها (همان داده‌ای که TimedBlock در InCallActivity ذخیره می‌کند) ----
     private SharedPreferences blockPrefs() {
@@ -951,6 +967,36 @@ public class MainActivity extends Activity {
         });
         box.addView(unblockBtn, fullTop(6));
         refreshUnblock();
+
+        speedHint = Ui.text(this, "", 15, t.primary);
+        speedHint.setGravity(Gravity.CENTER);
+        box.addView(speedHint, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        speedDelBtn = Ui.pill(this, "حذف این خانه", t.surface, t.text);
+        speedDelBtn.setVisibility(View.GONE);
+        speedDelBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String slot = speedSlotFromDial(dialNumber);
+                if (slot != null) {
+                    speedPrefs().edit().remove("d" + slot).apply();
+                    Toast.makeText(MainActivity.this, "خانه‌ی " + slot + " حذف شد", Toast.LENGTH_SHORT).show();
+                }
+                refreshSpeedHint();
+            }
+        });
+        box.addView(speedDelBtn, fullTop(4));
+
+        addSpeedBtn = Ui.pill(this, "افزودن به شماره‌گیری سریع", t.primary, t.onPrimary);
+        addSpeedBtn.setVisibility(View.GONE);
+        addSpeedBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showAddSpeedDialog();
+            }
+        });
+        box.addView(addSpeedBtn, fullTop(4));
+        refreshSpeedHint();
 
         String[][] keys = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"*", "0", "#"}};
         int keyIdx = 0;
@@ -1584,77 +1630,11 @@ public class MainActivity extends Activity {
         });
         box.addView(pickRing, fullTop(6));
 
-        // speed dial (100 slots)
-        box.addView(header("شماره‌گیری سریع (۱ تا ۱۰۰)"));
+        // speed dial note
+        box.addView(header("شماره‌گیری سریع"));
         box.addView(Ui.text(this,
-                "کد خانه (۱ تا ۱۰۰) و شماره را وارد کنید. برای تماس: در شماره‌گیر بنویسید *کد و دکمه‌ی تماس را بزنید. "
-                        + "کلیدهای ۱ تا ۹ با نگه‌داشتن هم همین خانه‌ها را صدا می‌زنند.",
+                "افزودن و حذف شماره‌های سریع (۱ تا ۱۰۰) در صفحه‌ی شماره‌گیر انجام می‌شود.",
                 14, t.text2));
-        final EditText slotCode = new EditText(this);
-        slotCode.setSingleLine(true);
-        slotCode.setInputType(InputType.TYPE_CLASS_NUMBER);
-        slotCode.setHint("کد (۱ تا ۱۰۰)");
-        final EditText slotNumber = new EditText(this);
-        slotNumber.setSingleLine(true);
-        slotNumber.setInputType(InputType.TYPE_CLASS_PHONE);
-        slotNumber.setHint("شماره");
-        slotNumber.setTextDirection(View.TEXT_DIRECTION_LTR);
-        for (EditText e : new EditText[]{slotCode, slotNumber}) {
-            e.setTextColor(t.text);
-            e.setHintTextColor(t.text2);
-            e.setBackground(Ui.rect(this, Ui.alpha(t.surface, 0xCC), 12));
-            e.setPadding(dp(10), dp(8), dp(10), dp(8));
-        }
-        box.addView(slotCode, fullTop(6));
-        box.addView(slotNumber, fullTop(6));
-
-        LinearLayout btns = new LinearLayout(this);
-        btns.setGravity(Gravity.CENTER);
-        TextView bSave = Ui.pill(this, "ذخیره", t.primary, t.onPrimary);
-        TextView bPick = Ui.pill(this, "مخاطب", t.surface, t.text);
-        TextView bDel = Ui.pill(this, "حذف", t.surface, t.text);
-        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        bp.setMargins(dp(4), dp(4), dp(4), dp(4));
-        btns.addView(bSave, bp);
-        btns.addView(bPick, bp);
-        btns.addView(bDel, bp);
-        box.addView(btns, fullTop(6));
-
-        final TextView slotList = Ui.text(this, "", 14, t.text);
-        slotList.setPadding(0, dp(8), 0, 0);
-        box.addView(slotList, fullTop(0));
-        refreshSlotList(slotList, slotCode, slotNumber);
-
-        bSave.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                int code = parseSlot(slotCode.getText().toString());
-                String num = slotNumber.getText().toString().trim();
-                if (code < 1 || num.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "کد (۱ تا ۱۰۰) و شماره را وارد کنید", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                speedPrefs().edit().putString("d" + code, num).apply();
-                Toast.makeText(MainActivity.this, "خانه‌ی " + code + " ذخیره شد", Toast.LENGTH_SHORT).show();
-                refreshSlotList(slotList, slotCode, slotNumber);
-            }
-        });
-        bDel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                int code = parseSlot(slotCode.getText().toString());
-                if (code < 1) return;
-                speedPrefs().edit().remove("d" + code).apply();
-                slotNumber.setText("");
-                refreshSlotList(slotList, slotCode, slotNumber);
-            }
-        });
-        bPick.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pickContact(slotNumber);
-            }
-        });
 
         // blocked numbers: list + unblock
         box.addView(header("شماره‌های مسدود"));
