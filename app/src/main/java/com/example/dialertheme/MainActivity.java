@@ -234,37 +234,54 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- actions
 
-    private EditText pendingPick;
+    private EditText pendingPick;      // فیلد تنظیمات که شماره‌اش پر می‌شود
+    private int pendingSpeedDigit = 0; // کلید شماره‌گیر سریع که شماره‌اش ذخیره می‌شود
 
-    /** باز کردن صفحه‌ی مخاطبین گوشی برای انتخاب شماره (بدون نیاز به اجازه‌ی جداگانه) */
+    /** انتخاب شماره از مخاطبین برای فیلد تنظیمات */
     private void pickContact(final EditText target) {
         pendingPick = target;
+        pendingSpeedDigit = 0;
+        launchContactPicker();
+    }
+
+    /** باز کردن صفحه‌ی مخاطبین گوشی (بدون نیاز به اجازه‌ی جداگانه) */
+    private void launchContactPicker() {
         Intent i = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
         try {
             startActivityForResult(i, 77);
         } catch (ActivityNotFoundException e) {
             pendingPick = null;
+            pendingSpeedDigit = 0;
             Toast.makeText(this, "برنامه‌ی مخاطبین پیدا نشد", Toast.LENGTH_SHORT).show();
         }
     }
 
     private void handlePickedContact(int result, Intent data) {
         EditText target = pendingPick;
+        int digit = pendingSpeedDigit;
         pendingPick = null;
-        if (result != RESULT_OK || data == null || data.getData() == null || target == null) return;
+        pendingSpeedDigit = 0;
+        if (result != RESULT_OK || data == null || data.getData() == null) return;
+        String number = null;
         Cursor cur = null;
         try {
             cur = getContentResolver().query(data.getData(),
                     new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER}, null, null, null);
-            if (cur != null && cur.moveToFirst()) {
-                target.setText(cur.getString(0));
-            } else {
-                Toast.makeText(this, "شماره‌ای پیدا نشد", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "شماره خوانده نشد", Toast.LENGTH_SHORT).show();
+            if (cur != null && cur.moveToFirst()) number = cur.getString(0);
+        } catch (Exception ignored) {
         } finally {
             if (cur != null) cur.close();
+        }
+        if (number == null || number.trim().isEmpty()) {
+            Toast.makeText(this, "شماره‌ای پیدا نشد", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        number = number.trim();
+        if (digit > 0) {
+            speedPrefs().edit().putString("d" + digit, number).apply();
+            Toast.makeText(this, "شماره روی کلید " + digit + " ذخیره شد", Toast.LENGTH_SHORT).show();
+        } else if (target != null) {
+            target.setText(number);
         }
     }
 
@@ -408,11 +425,7 @@ public class MainActivity extends Activity {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
                 ContactUtil.Contact c = (ContactUtil.Contact) ad.getItem(pos);
-                if (c.whatsapp) {
-                    openWhatsApp(c.number);
-                } else {
-                    placeCall(c.number);
-                }
+                placeCall(c.number);
             }
         });
 
@@ -447,7 +460,7 @@ public class MainActivity extends Activity {
     }
 
     private static class ContactHolder {
-        TextView avatar, name, number;
+        TextView avatar, name, number, wa;
         IconView sms;
     }
 
@@ -514,6 +527,11 @@ public class MainActivity extends Activity {
                 ip.setMarginStart(dp(8));
                 row.addView(h.sms, ip);
 
+                h.wa = Ui.pill(MainActivity.this, "واتساپ", t.primary, t.onPrimary);
+                LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(WRAP, WRAP);
+                wp.setMarginStart(dp(8));
+                row.addView(h.wa, wp);
+
                 row.setTag(h);
                 cv = row;
             } else {
@@ -524,6 +542,13 @@ public class MainActivity extends Activity {
             h.name.setText(c.name);
             String badge = (c.whatsapp ? "  · واتساپ" : "") + (c.telegram ? "  · تلگرام" : "");
             h.number.setText(c.number + badge);
+            h.wa.setVisibility(c.whatsapp ? View.VISIBLE : View.GONE);
+            h.wa.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    openWhatsApp(c.number);
+                }
+            });
             h.sms.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -740,8 +765,9 @@ public class MainActivity extends Activity {
                 public boolean onLongClick(View view) {
                     String n = speedNumber(k.charAt(0) - '0');
                     if (n.isEmpty()) {
-                        Toast.makeText(MainActivity.this,
-                                "برای کلید " + k + " شماره‌ی سریع تنظیم نشده است", Toast.LENGTH_SHORT).show();
+                        pendingSpeedDigit = k.charAt(0) - '0';
+                        pendingPick = null;
+                        launchContactPicker();
                     } else {
                         placeCall(n);
                     }
