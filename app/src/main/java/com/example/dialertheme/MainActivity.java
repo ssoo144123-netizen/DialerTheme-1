@@ -29,6 +29,7 @@ import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
 import android.provider.ContactsContract;
 import android.media.AudioManager;
+import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.media.ToneGenerator;
 import android.text.InputType;
@@ -73,6 +74,7 @@ public class MainActivity extends Activity {
     private TextView unblockBtn;   // «رفع مسدودی» داخل شماره‌گیر
     private TextView speedHint;    // نمایش خانه‌ی شماره‌گیر سریع (مثلاً *10)
     private TextView speedDelBtn;  // حذف خانه‌ی انتخاب‌شده از خود شماره‌گیر
+    private TextView redialBtn;    // تکرار تماس بعد از اشغالی یا عدم پاسخ
     private TextView addSpeedBtn;  // افزودن شماره‌ی وارد‌شده به یک خانه‌ی سریع
 
     private int dp(float v) {
@@ -162,6 +164,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onResume() {
+        refreshRedial();
         super.onResume();
         if (content != null && tab == 3) showTab(3);
     }
@@ -171,6 +174,17 @@ public class MainActivity extends Activity {
         super.onActivityResult(rc, result, data);
         if (rc == 77) {
             handlePickedContact(result, data);
+            return;
+        }
+        if (rc == 79) {
+            if (result == RESULT_OK && data != null) {
+                Uri picked = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+                SharedPreferences.Editor e = kpPrefs().edit();
+                if (picked == null) e.remove("keysound");
+                else e.putString("keysound", picked.toString());
+                e.apply();
+                recreate();
+            }
             return;
         }
         if (rc == 78) {
@@ -253,8 +267,43 @@ public class MainActivity extends Activity {
 
     private ToneGenerator toneGen;
 
+    /** پخش صدای انتخاب‌شده از گوشی (یک بار، بدون نیاز به فایل جداگانه) */
+    private void playCustomKeySound(String uri) {
+        try {
+            MediaPlayer mp = new MediaPlayer();
+            mp.setAudioStreamType(AudioManager.STREAM_NOTIFICATION);
+            mp.setDataSource(this, Uri.parse(uri));
+            mp.prepare();
+            mp.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer m) {
+                    m.release();
+                }
+            });
+            mp.start();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void launchKeySoundPicker() {
+        Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false);
+        try {
+            startActivityForResult(i, 79);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "انتخاب صدا در این گوشی ممکن نیست", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     /** پخش صدای کوتاه برای هر کلید شماره‌گیری، طبق انتخاب کاربر در تنظیمات */
     private void playKeySound(String k) {
+        String custom = kpPrefs().getString("keysound", null);
+        if (custom != null) {
+            playCustomKeySound(custom);
+            return;
+        }
         int mode = kpPrefs().getInt("sound", 0);
         if (mode == 4) return; // بی‌صدا
         try {
@@ -756,6 +805,35 @@ public class MainActivity extends Activity {
         refreshSpeedHint();
     }
 
+    /** شماره‌ی آخرین تماسی که بی‌پاسخ، اشغال یا رد شده (یا null) */
+    private String lastUnansweredNumber() {
+        if (!has(Manifest.permission.READ_CALL_LOG)) return null;
+        Cursor cur = null;
+        try {
+            cur = getContentResolver().query(CallLog.Calls.CONTENT_URI,
+                    new String[]{CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION},
+                    null, null, CallLog.Calls.DATE + " DESC");
+            if (cur != null && cur.moveToFirst()) {
+                String num = cur.getString(0);
+                int type = cur.getInt(1);
+                long dur = cur.getLong(2);
+                boolean failed = type == CallLog.Calls.MISSED_TYPE
+                        || type == CallLog.Calls.REJECTED_TYPE
+                        || (type == CallLog.Calls.OUTGOING_TYPE && dur == 0);
+                if (failed && num != null && !num.isEmpty()) return num;
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cur != null) cur.close();
+        }
+        return null;
+    }
+
+    private void refreshRedial() {
+        if (redialBtn == null) return;
+        redialBtn.setVisibility(lastUnansweredNumber() != null ? View.VISIBLE : View.GONE);
+    }
+
     private void refreshSpeedHint() {
         if (speedHint == null) return;
         String slot = speedSlotFromDial(dialNumber);
@@ -1038,6 +1116,19 @@ public class MainActivity extends Activity {
             }
         });
         box.addView(addSpeedBtn, fullTop(4));
+
+        redialBtn = Ui.pill(this, "تکرار تماس", t.primary, t.onPrimary);
+        redialBtn.setVisibility(View.GONE);
+        redialBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String n = lastUnansweredNumber();
+                if (n != null) placeCall(n);
+                refreshRedial();
+            }
+        });
+        box.addView(redialBtn, fullTop(4));
+        refreshRedial();
         refreshSpeedHint();
 
         String[][] keys = {{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {"*", "0", "#"}};
@@ -1737,6 +1828,24 @@ public class MainActivity extends Activity {
         box.addView(Ui.text(this, "صدای کلیدها", 14, t.text2));
         box.addView(chipRow(new String[]{"DTMF", "بیپ", "تأیید", "پیپ", "بی‌صدا"},
                 kpPrefs().getInt("sound", 0), savePref("sound")), fullTop(6));
+        String keyUri = kpPrefs().getString("keysound", null);
+        String keyName = "پیش‌فرض (از حالت بالا)";
+        if (keyUri != null) {
+            try {
+                keyName = RingtoneManager.getRingtone(this, Uri.parse(keyUri)).getTitle(this);
+            } catch (Exception e) {
+                keyName = "صدای انتخابی";
+            }
+        }
+        box.addView(Ui.text(this, "صدای انتخابی از گوشی: " + keyName, 14, t.text2));
+        TextView pickKey = Ui.pill(this, "انتخاب صدا از صداهای گوشی", t.primary, t.onPrimary);
+        pickKey.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchKeySoundPicker();
+            }
+        });
+        box.addView(pickKey, fullTop(6));
 
         TextView tip = Ui.text(this,
                 "برای برگشتن به شماره‌گیر قبلی: تنظیمات اندروید ← برنامه‌ها ← برنامه‌های پیش‌فرض ← تلفن.",

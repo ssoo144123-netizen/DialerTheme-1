@@ -209,6 +209,11 @@ public class InCallActivity extends Activity {
         }
     }
 
+    /** آیا متن فقط شماره (یا خالی) است؟ */
+    private static boolean looksLikeNumber(String s) {
+        return s == null || s.trim().isEmpty() || s.replaceAll("[0-9+\\-()\\s]", "").isEmpty();
+    }
+
     /** نام ذخیره‌شده‌ی یک شماره‌ی شماره‌گیری سریع (یا null) */
     static String speedNameFor(Context ctx, String number) {
         String want = digitsTail(number);
@@ -256,7 +261,7 @@ public class InCallActivity extends Activity {
         String title = CallManager.title(this, c);
         // اگر مخاطب در دفترچه نیست، نامِ ذخیره‌شده‌ی خانه‌ی شماره‌گیری سریع را نشان بده
         String speedName = speedNameFor(this, CallManager.number(c));
-        if (speedName != null && title.equals(CallManager.number(c))) title = speedName;
+        if (speedName != null && looksLikeNumber(title)) title = speedName;
         String number = CallManager.number(c);
         nameTv.setText(title);
         numTv.setText((number != null && !number.equals(title)) ? number : "");
