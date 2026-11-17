@@ -333,11 +333,17 @@ public class MainActivity extends Activity {
         pendingSpeedDigit = 0;
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         String number = null;
+        String name = "";
         Cursor cur = null;
         try {
             cur = getContentResolver().query(data.getData(),
-                    new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER}, null, null, null);
-            if (cur != null && cur.moveToFirst()) number = cur.getString(0);
+                    new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER,
+                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME}, null, null, null);
+            if (cur != null && cur.moveToFirst()) {
+                number = cur.getString(0);
+                String n = cur.getString(1);
+                name = n == null ? "" : n;
+            }
         } catch (Exception ignored) {
         } finally {
             if (cur != null) cur.close();
@@ -348,7 +354,7 @@ public class MainActivity extends Activity {
         }
         number = number.trim();
         if (digit > 0) {
-            speedPrefs().edit().putString("d" + digit, number).apply();
+            speedPrefs().edit().putString("d" + digit, number).putString("d" + digit + "n", name).apply();
             dialNumber = "";
             updateDial();
             Toast.makeText(this, "شماره روی کلید " + digit + " ذخیره شد", Toast.LENGTH_SHORT).show();
@@ -765,6 +771,25 @@ public class MainActivity extends Activity {
         if (speedDelBtn != null) speedDelBtn.setVisibility(n.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
+    /** نام مخاطبی که این شماره را دارد (رشته‌ی خالی اگر پیدا نشد) */
+    private String lookupDisplayName(String number) {
+        if (!has(Manifest.permission.READ_CONTACTS)) return "";
+        Cursor cur = null;
+        try {
+            cur = getContentResolver().query(
+                    Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number)),
+                    new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME}, null, null, null);
+            if (cur != null && cur.moveToFirst()) {
+                String n = cur.getString(0);
+                return n == null ? "" : n;
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cur != null) cur.close();
+        }
+        return "";
+    }
+
     /** باز کردن فرم ذخیره‌ی مخاطب با شماره‌ی تازه‌ذخیره‌شده تا نام آن هم ثبت شود */
     private void openSaveToContacts(String number) {
         Intent i = new Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI);
@@ -796,7 +821,8 @@ public class MainActivity extends Activity {
                             Toast.makeText(MainActivity.this, "کد باید بین ۱ تا ۱۰۰ باشد", Toast.LENGTH_SHORT).show();
                             return;
                         }
-                        speedPrefs().edit().putString("d" + code, number).apply();
+                        speedPrefs().edit().putString("d" + code, number)
+                                .putString("d" + code + "n", lookupDisplayName(number)).apply();
                         dialNumber = "";
                         updateDial();
                         openSaveToContacts(number);
@@ -995,7 +1021,7 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 String slot = speedSlotFromDial(dialNumber);
                 if (slot != null) {
-                    speedPrefs().edit().remove("d" + slot).apply();
+                    speedPrefs().edit().remove("d" + slot).remove("d" + slot + "n").apply();
                     Toast.makeText(MainActivity.this, "خانه‌ی " + slot + " حذف شد", Toast.LENGTH_SHORT).show();
                 }
                 refreshSpeedHint();

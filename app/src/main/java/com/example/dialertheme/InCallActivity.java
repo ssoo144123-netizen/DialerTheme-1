@@ -209,6 +209,31 @@ public class InCallActivity extends Activity {
         }
     }
 
+    /** نام ذخیره‌شده‌ی یک شماره‌ی شماره‌گیری سریع (یا null) */
+    static String speedNameFor(Context ctx, String number) {
+        String want = digitsTail(number);
+        if (want == null) return null;
+        android.content.SharedPreferences p = ctx.getSharedPreferences("speed", Context.MODE_PRIVATE);
+        for (java.util.Map.Entry<String, ?> e : p.getAll().entrySet()) {
+            String k = e.getKey();
+            if (!k.startsWith("d") || k.endsWith("n")) continue;
+            Object v = e.getValue();
+            if (!(v instanceof String)) continue;
+            if (want.equals(digitsTail((String) v))) {
+                String name = p.getString(k + "n", null);
+                return (name == null || name.isEmpty()) ? null : name;
+            }
+        }
+        return null;
+    }
+
+    private static String digitsTail(String n) {
+        if (n == null) return null;
+        String d = n.replaceAll("[^0-9]", "");
+        if (d.isEmpty()) return null;
+        return d.length() > 9 ? d.substring(d.length() - 9) : d;
+    }
+
     private void refresh() {
         if (statusTv == null) return;
         final Call c = CallManager.primary();
@@ -229,6 +254,9 @@ public class InCallActivity extends Activity {
         }
         syncAudio();
         String title = CallManager.title(this, c);
+        // اگر مخاطب در دفترچه نیست، نامِ ذخیره‌شده‌ی خانه‌ی شماره‌گیری سریع را نشان بده
+        String speedName = speedNameFor(this, CallManager.number(c));
+        if (speedName != null && title.equals(CallManager.number(c))) title = speedName;
         String number = CallManager.number(c);
         nameTv.setText(title);
         numTv.setText((number != null && !number.equals(title)) ? number : "");
