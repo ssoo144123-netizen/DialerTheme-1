@@ -349,6 +349,8 @@ public class MainActivity extends Activity {
         number = number.trim();
         if (digit > 0) {
             speedPrefs().edit().putString("d" + digit, number).apply();
+            dialNumber = "";
+            updateDial();
             Toast.makeText(this, "شماره روی کلید " + digit + " ذخیره شد", Toast.LENGTH_SHORT).show();
         } else if (target != null) {
             target.setText(number);
@@ -763,6 +765,17 @@ public class MainActivity extends Activity {
         if (speedDelBtn != null) speedDelBtn.setVisibility(n.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
+    /** باز کردن فرم ذخیره‌ی مخاطب با شماره‌ی تازه‌ذخیره‌شده تا نام آن هم ثبت شود */
+    private void openSaveToContacts(String number) {
+        Intent i = new Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI);
+        i.putExtra(ContactsContract.Intents.Insert.PHONE, number);
+        try {
+            startActivity(i);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "برنامه‌ی مخاطبین پیدا نشد", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     /** دریافت کد خانه (۱ تا ۱۰۰) و ذخیره‌ی شماره‌ی روی صفحه در همان خانه (افزودن یا تغییر) */
     private void showAddSpeedDialog() {
         final String number = dialNumber;
@@ -784,6 +797,9 @@ public class MainActivity extends Activity {
                             return;
                         }
                         speedPrefs().edit().putString("d" + code, number).apply();
+                        dialNumber = "";
+                        updateDial();
+                        openSaveToContacts(number);
                         Toast.makeText(MainActivity.this, "روی خانه‌ی " + code + " ذخیره شد", Toast.LENGTH_SHORT).show();
                         refreshSpeedHint();
                     }
@@ -1023,8 +1039,9 @@ public class MainActivity extends Activity {
                 if (slotNum != null) {
                     String target = speedNumber(Integer.parseInt(slotNum));
                     if (target.isEmpty()) {
-                        Toast.makeText(MainActivity.this,
-                                "برای کد " + slotNum + " شماره‌ی سریع تنظیم نشده است", Toast.LENGTH_SHORT).show();
+                        pendingSpeedDigit = Integer.parseInt(slotNum);
+                        pendingPick = null;
+                        launchContactPicker();
                     } else {
                         placeCall(target);
                     }
