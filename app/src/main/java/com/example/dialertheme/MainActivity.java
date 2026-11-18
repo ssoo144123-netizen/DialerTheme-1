@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     private TextView unblockBtn;   // «رفع مسدودی» داخل شماره‌گیر
     private TextView speedHint;    // نمایش خانه‌ی شماره‌گیر سریع (مثلاً *10)
     private TextView speedDelBtn;  // حذف خانه‌ی انتخاب‌شده از خود شماره‌گیر
+    private TextView smsPickBtn, waPickBtn; // پیامک و واتساپ از خود شماره‌گیر
     private TextView redialBtn;    // تکرار تماس بعد از اشغالی یا عدم پاسخ
     private TextView addSpeedBtn;  // افزودن شماره‌ی وارد‌شده به یک خانه‌ی سریع
 
@@ -836,7 +837,15 @@ public class MainActivity extends Activity {
         redialBtn.setVisibility(lastUnansweredNumber() != null ? View.VISIBLE : View.GONE);
     }
 
+    private void refreshActions() {
+        if (smsPickBtn == null) return;
+        boolean plain = dialNumber.matches("[0-9+]{2,}");
+        smsPickBtn.setVisibility(plain ? View.VISIBLE : View.GONE);
+        waPickBtn.setVisibility(plain ? View.VISIBLE : View.GONE);
+    }
+
     private void refreshSpeedHint() {
+        refreshActions();
         if (speedHint == null) return;
         String slot = speedSlotFromDial(dialNumber);
         boolean plainNumber = dialNumber.matches("[0-9+]{2,}");
@@ -1094,7 +1103,7 @@ public class MainActivity extends Activity {
         speedHint.setGravity(Gravity.CENTER);
         box.addView(speedHint, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        speedDelBtn = Ui.pill(this, "حذف این خانه", t.surface, t.text);
+        speedDelBtn = Ui.pill(this, "حذف خانه", t.surface, t.text);
         speedDelBtn.setVisibility(View.GONE);
         speedDelBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1107,7 +1116,6 @@ public class MainActivity extends Activity {
                 refreshSpeedHint();
             }
         });
-        box.addView(speedDelBtn, fullTop(4));
 
         addSpeedBtn = Ui.pill(this, "ذخیره", t.primary, t.onPrimary);
         addSpeedBtn.setVisibility(View.GONE);
@@ -1118,7 +1126,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        redialBtn = Ui.pill(this, "تکرار تماس", t.primary, t.onPrimary);
+        redialBtn = Ui.pill(this, "تکرار", t.primary, t.onPrimary);
         redialBtn.setVisibility(View.GONE);
         redialBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1128,7 +1136,6 @@ public class MainActivity extends Activity {
                 refreshRedial();
             }
         });
-        box.addView(redialBtn, fullTop(4));
         refreshRedial();
         refreshSpeedHint();
 
@@ -1198,6 +1205,32 @@ public class MainActivity extends Activity {
         });
         last.addView(back, keyLp());
         box.addView(last);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER);
+        smsPickBtn = Ui.pill(this, "پیامک", t.surface, t.text);
+        waPickBtn = Ui.pill(this, "واتساپ", t.primary, t.onPrimary);
+        for (TextView b : new TextView[]{redialBtn, speedDelBtn, smsPickBtn, waPickBtn}) {
+            b.setTextSize(11);
+            b.setPadding(dp(8), dp(3), dp(8), dp(3));
+            b.setVisibility(View.GONE);
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(WRAP, WRAP);
+            ap.setMargins(dp(3), dp(4), dp(3), dp(4));
+            actions.addView(b, ap);
+        }
+        smsPickBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendSms(dialNumber);
+            }
+        });
+        waPickBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openWhatsApp(dialNumber);
+            }
+        });
+        box.addView(actions);
 
         sv.addView(box, new ScrollView.LayoutParams(MATCH, WRAP));
         return sv;

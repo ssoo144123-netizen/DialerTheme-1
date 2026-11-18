@@ -45,8 +45,6 @@ public class InCallActivity extends Activity {
     private boolean finishScheduled = false;
     private boolean showKeypad = false;      // صفحه‌کلید DTMF درون تماس
     private FrameLayout avatarBox;           // آواتار بزرگ بالای صفحه
-    private LinearLayout msgRow;             // دکمه‌های کوچک واتساپ و پیامک
-    private TextView waBtn, smsBtn;
     private String dtmfSent = "";            // کدهایی که تا الان فرستاده شده
 
     private final CallManager.Listener listener = new CallManager.Listener() {
@@ -131,21 +129,6 @@ public class InCallActivity extends Activity {
         root.addView(numTv, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        msgRow = new LinearLayout(this);
-        msgRow.setGravity(Gravity.CENTER);
-        waBtn = Ui.pill(this, "واتساپ", t.primary, t.onPrimary);
-        smsBtn = Ui.pill(this, "پیامک", t.surface, t.text);
-        for (TextView mb : new TextView[]{waBtn, smsBtn}) {
-            mb.setTextSize(10);
-            mb.setPadding(dp(6), 0, dp(6), 0);
-            mb.setVisibility(View.GONE);
-        }
-        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(22));
-        mp.setMargins(dp(4), dp(4), dp(4), dp(4));
-        msgRow.addView(waBtn, mp);
-        msgRow.addView(smsBtn, mp);
-        root.addView(msgRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statusTv = Ui.text(this, "", 18, t.primary);
         statusTv.setGravity(Gravity.CENTER);
@@ -304,22 +287,6 @@ public class InCallActivity extends Activity {
         String number = CallManager.number(c);
         nameTv.setText(title);
         numTv.setText((number != null && !number.equals(title)) ? number : "");
-        final String msgNumber = number;
-        boolean hasNumber = msgNumber != null && !msgNumber.isEmpty();
-        waBtn.setVisibility(hasNumber ? View.VISIBLE : View.GONE);
-        smsBtn.setVisibility(hasNumber ? View.VISIBLE : View.GONE);
-        waBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openWhatsAppChat(msgNumber);
-            }
-        });
-        smsBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openSmsChat(msgNumber);
-            }
-        });
         avatar.setText(initial(title));
         statusTv.setText(statusText(c));
         int s = c.getState();
