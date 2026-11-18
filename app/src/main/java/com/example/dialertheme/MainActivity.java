@@ -671,12 +671,14 @@ public class MainActivity extends Activity {
                 row.addView(col, cp);
 
                 h.sms = new IconView(MainActivity.this, IconView.CHAT, t.accent, t.neon);
-                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(26), dp(26));
+                LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(22), dp(22));
                 ip.setMarginStart(dp(8));
                 row.addView(h.sms, ip);
 
                 h.wa = Ui.pill(MainActivity.this, "واتساپ", t.primary, t.onPrimary);
-                LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(WRAP, WRAP);
+                h.wa.setTextSize(10);
+                h.wa.setPadding(dp(6), 0, dp(6), 0);
+                LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(WRAP, dp(22));
                 wp.setMarginStart(dp(8));
                 row.addView(h.wa, wp);
 
@@ -1107,7 +1109,7 @@ public class MainActivity extends Activity {
         });
         box.addView(speedDelBtn, fullTop(4));
 
-        addSpeedBtn = Ui.pill(this, "افزودن به شماره‌گیری سریع", t.primary, t.onPrimary);
+        addSpeedBtn = Ui.pill(this, "ذخیره", t.primary, t.onPrimary);
         addSpeedBtn.setVisibility(View.GONE);
         addSpeedBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -1115,7 +1117,6 @@ public class MainActivity extends Activity {
                 showAddSpeedDialog();
             }
         });
-        box.addView(addSpeedBtn, fullTop(4));
 
         redialBtn = Ui.pill(this, "تکرار تماس", t.primary, t.onPrimary);
         redialBtn.setVisibility(View.GONE);
@@ -1142,7 +1143,12 @@ public class MainActivity extends Activity {
 
         LinearLayout last = new LinearLayout(this);
         last.setGravity(Gravity.CENTER);
-        last.addView(new View(this), keyLp());
+        addSpeedBtn.setTextSize(12);
+        addSpeedBtn.setPadding(dp(8), dp(4), dp(8), dp(4));
+        LinearLayout saveSlot = new LinearLayout(this);
+        saveSlot.setGravity(Gravity.CENTER);
+        saveSlot.addView(addSpeedBtn, new LinearLayout.LayoutParams(WRAP, WRAP));
+        last.addView(saveSlot, keyLp());
 
         LinearLayout call = new LinearLayout(this);
         call.setGravity(Gravity.CENTER);
