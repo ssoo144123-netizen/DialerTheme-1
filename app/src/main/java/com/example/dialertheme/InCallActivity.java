@@ -135,10 +135,10 @@ public class InCallActivity extends Activity {
         msgRow.setGravity(Gravity.CENTER);
         waBtn = Ui.pill(this, "واتساپ", t.primary, t.onPrimary);
         smsBtn = Ui.pill(this, "پیامک", t.surface, t.text);
-        for (TextView b : new TextView[]{waBtn, smsBtn}) {
-            b.setTextSize(10);
-            b.setPadding(dp(6), 0, dp(6), 0);
-            b.setVisibility(View.GONE);
+        for (TextView mb : new TextView[]{waBtn, smsBtn}) {
+            mb.setTextSize(10);
+            mb.setPadding(dp(6), 0, dp(6), 0);
+            mb.setVisibility(View.GONE);
         }
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(22));
         mp.setMargins(dp(4), dp(4), dp(4), dp(4));
